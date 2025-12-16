@@ -3201,6 +3201,102 @@ def create_feeds_for_ticker_new_architecture(ticker: str, metadata: dict) -> lis
     LOG.info(f"✅ Created {len(feeds_created)} feed associations for {ticker} using NEW ARCHITECTURE (category-per-relationship)")
     return feeds_created
 
+
+def refresh_feeds_for_active_tickers() -> Dict[str, Any]:
+    """
+    Refresh feed associations for all active user tickers.
+
+    Called at startup AFTER CSV sync to ensure feeds match current ticker_reference data.
+
+    For each active ticker:
+    1. Delete existing ticker_feeds associations
+    2. Get config from ticker_reference (just synced from CSV)
+    3. Recreate feeds based on current config
+
+    Feed IDs (in feeds table) are stable because they're keyed by URL.
+    Only ticker_feeds associations are recreated.
+
+    Returns:
+        Dict with refresh results: {status, tickers_refreshed, feeds_created, errors}
+    """
+    LOG.info("🔄 Refreshing feeds for active tickers (ensuring feeds match CSV data)...")
+
+    results = {
+        "status": "success",
+        "tickers_refreshed": 0,
+        "total_feeds_created": 0,
+        "errors": []
+    }
+
+    try:
+        # Get unique tickers from active users
+        ticker_recipients = load_active_users()
+        unique_tickers = list(ticker_recipients.keys())
+
+        if not unique_tickers:
+            LOG.warning("⚠️ No active user tickers found - skipping feed refresh")
+            results["status"] = "skipped"
+            results["message"] = "No active user tickers"
+            return results
+
+        LOG.info(f"📋 Found {len(unique_tickers)} unique tickers from active users: {unique_tickers}")
+
+        for ticker in unique_tickers:
+            try:
+                # Step 1: Delete existing ticker_feeds associations for this ticker
+                with db() as conn, conn.cursor() as cur:
+                    cur.execute("DELETE FROM ticker_feeds WHERE ticker = %s", (ticker,))
+                    deleted_count = cur.rowcount
+                    conn.commit()
+                    LOG.info(f"[{ticker}] 🗑️ Deleted {deleted_count} old feed associations")
+
+                # Step 2: Get current config from ticker_reference (just synced from CSV)
+                config = get_ticker_config(ticker)
+
+                if not config:
+                    LOG.warning(f"[{ticker}] ⚠️ No config found in ticker_reference - using fallback")
+                    config = {
+                        'ticker': ticker,
+                        'company_name': ticker,
+                        'industry_keywords': [],
+                        'competitors': [],
+                        'value_chain': {'upstream': [], 'downstream': []},
+                        'has_full_config': False,
+                        'use_google_only': True
+                    }
+
+                # Step 3: Recreate feeds based on current config
+                feeds_created = create_feeds_for_ticker_new_architecture(ticker, config)
+
+                results["tickers_refreshed"] += 1
+                results["total_feeds_created"] += len(feeds_created)
+
+                LOG.info(f"[{ticker}] ✅ Refreshed: {len(feeds_created)} feed associations created")
+
+            except Exception as e:
+                error_msg = f"[{ticker}] Failed to refresh feeds: {e}"
+                LOG.error(f"❌ {error_msg}")
+                results["errors"].append(error_msg)
+
+        # Summary
+        if results["errors"]:
+            results["status"] = "partial"
+
+        LOG.info(f"✅ Feed refresh complete: {results['tickers_refreshed']}/{len(unique_tickers)} tickers refreshed, "
+                 f"{results['total_feeds_created']} total feed associations created")
+
+        if results["errors"]:
+            LOG.warning(f"⚠️ {len(results['errors'])} errors during feed refresh")
+
+        return results
+
+    except Exception as e:
+        LOG.error(f"❌ Feed refresh failed: {e}")
+        results["status"] = "failed"
+        results["error"] = str(e)
+        return results
+
+
 def get_feeds_for_ticker_new_architecture(ticker: str) -> list:
     """Get all active feeds for a ticker with their per-relationship categories"""
     with db() as conn, conn.cursor() as cur:
@@ -20045,6 +20141,25 @@ def job_worker_loop():
     except Exception as e:
         LOG.error(f"❌ GitHub sync crashed: {e}")
         LOG.error("⚠️ Worker will continue, but tickers may have incorrect data!")
+
+    # CRITICAL: Refresh feeds for active tickers AFTER CSV sync
+    # This ensures feeds match current ticker_reference data (industry keywords, competitors, upstream/downstream)
+    LOG.info("🔄 Refreshing feeds for active tickers (post-CSV sync)...")
+    try:
+        feed_refresh_result = refresh_feeds_for_active_tickers()
+        if feed_refresh_result["status"] == "success":
+            LOG.info(f"✅ Feed refresh successful: {feed_refresh_result.get('tickers_refreshed', 0)} tickers, "
+                     f"{feed_refresh_result.get('total_feeds_created', 0)} feed associations")
+        elif feed_refresh_result["status"] == "skipped":
+            LOG.info(f"⏭️ Feed refresh skipped: {feed_refresh_result.get('message', 'No active tickers')}")
+        else:
+            LOG.warning(f"⚠️ Feed refresh had issues: {feed_refresh_result.get('status', 'unknown')}")
+            if feed_refresh_result.get('errors'):
+                for err in feed_refresh_result['errors'][:5]:  # Log first 5 errors
+                    LOG.warning(f"  → {err}")
+    except Exception as e:
+        LOG.error(f"❌ Feed refresh crashed: {e}")
+        LOG.error("⚠️ Worker will continue, but feeds may be stale!")
 
     # Create thread pool for concurrent job processing
     with ThreadPoolExecutor(max_workers=MAX_CONCURRENT_JOBS, thread_name_prefix="TickerWorker") as executor:

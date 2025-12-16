@@ -2991,6 +2991,52 @@ Add to Migration History section explaining:
 
 ## Migration History
 
+### December 2025: Automatic Feed Refresh on Startup
+
+**Objective:** Ensure CSV changes to `ticker_reference.csv` automatically propagate to feeds on server restart.
+
+**Problem Solved:**
+- CSV edits (industry keywords, competitors, upstream/downstream) were synced to `ticker_reference` table
+- BUT feed associations in `ticker_feeds` table were NOT updated
+- Result: Old feeds persisted even after CSV corrections (e.g., CORZ had wrong industry keywords)
+
+**Solution:**
+New `refresh_feeds_for_active_tickers()` function runs at startup AFTER CSV sync:
+
+1. Query active tickers from `users` + `user_tickers` tables
+2. For each active ticker:
+   - DELETE from `ticker_feeds` WHERE ticker = X (remove old associations)
+   - Get config from `ticker_reference` (just synced from CSV)
+   - Call `create_feeds_for_ticker_new_architecture()` to recreate associations
+
+**Key Design Points:**
+- **Feed IDs are stable**: Feeds in `feeds` table are keyed by URL, so unchanged feeds keep same ID
+- **Only associations change**: `ticker_feeds` rows are recreated, not `feeds` themselves
+- **Articles are safe**: No CASCADE to `articles` table (only `ticker_articles` is cleaned)
+- **Idempotent**: Safe to run multiple times, produces same result
+- **Fast**: ~66 DB operations for 6 tickers (< 1 second)
+
+**Startup Flow (Updated):**
+```
+job_worker_loop():
+├── sync_ticker_references_from_github()     ← CSV → ticker_reference
+├── refresh_feeds_for_active_tickers()       ← NEW: ticker_reference → ticker_feeds
+└── poll for jobs...
+```
+
+**New Functions:**
+- `refresh_feeds_for_active_tickers()` - Line 3205 (orchestrates feed refresh for all active tickers)
+
+**Benefits:**
+- ✅ CSV edits propagate to feeds automatically on next restart
+- ✅ No manual `/admin/init` needed after CSV changes
+- ✅ Self-healing (every restart ensures feeds match CSV)
+- ✅ Zero risk to articles (only associations refreshed)
+
+**Lines Changed:** ~95 lines added in `app.py`
+
+---
+
 ### November 25, 2025: Feed Architecture Stabilization
 
 **Objective:** Prevent AI from overwriting ticker metadata during daily processing. CSV (`ticker_reference.csv`) is now the single source of truth for all ticker data.
@@ -3034,10 +3080,12 @@ CSV (GitHub) → Database (startup sync)
          Corruption propagates back
 ```
 
-**Architecture After (November 25, 2025):**
+**Architecture After (December 2025 - UPDATED):**
 ```
-CSV (GitHub) → Database (startup sync) → Feeds
-                     ↓
+CSV (GitHub) → Database (startup sync) → Feed Refresh → Processing
+                     ↓                         ↓
+              ticker_reference table    ticker_feeds recreated
+                     ↓                   (based on CSV data)
               Read-only for processing
                      ↓
               NO AI enhancement
@@ -3047,7 +3095,7 @@ CSV (GitHub) → Database (startup sync) → Feeds
 
 **What Still Works:**
 - ✅ CSV sync from GitHub on startup (source of truth)
-- ✅ Feed creation based on database data
+- ✅ **Feed refresh on startup** (December 2025) - ensures feeds match CSV
 - ✅ AI generation for truly NEW tickers (not in CSV/database)
 - ✅ AI functions preserved (for future explicit admin endpoints)
 - ✅ Daily cron commit (if manually enabled)
