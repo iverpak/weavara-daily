@@ -17621,14 +17621,18 @@ async def process_regenerate_email_phase(job: dict):
             # Fetch real articles from articles table
             if real_article_ids:
                 # Query matches fetch_digest_articles() for consistency:
+                # - Includes ta.ticker for company name badge in Email #2
+                # - Includes ta.ai_model for AI model badge in Email #2
                 # - Includes tf.value_chain_type for upstream/downstream categorization
                 # - No is_rejected filter (original stored article_ids, trust them)
                 cur.execute("""
                     SELECT a.id, a.title, a.url, a.resolved_url, a.domain, a.published_at,
+                           ta.ticker,
                            tf.category, f.search_keyword, f.feed_ticker,
                            tf.value_chain_type,
-                           ta.relevance_score, ta.relevance_reason,
-                           ta.ai_summary
+                           ta.relevance_score, ta.relevance_reason, ta.is_rejected,
+                           ta.ai_summary, ta.ai_model,
+                           a.quality_score
                     FROM articles a
                     JOIN ticker_articles ta ON a.id = ta.article_id
                     JOIN ticker_feeds tf ON ta.feed_id = tf.feed_id AND ta.ticker = tf.ticker
@@ -17690,6 +17694,18 @@ async def process_regenerate_email_phase(job: dict):
             article_id = article.get('id')
             if article_id:
                 flagged_article_ids.append(article_id)
+
+        # CRITICAL FIX: Split value_chain into upstream/downstream BEFORE Phase 1
+        # The executive summary module expects separate upstream/downstream categories
+        # Without this split, upstream/downstream articles are excluded from Phase 1 timeline,
+        # causing index mismatch between Phase 1 and Email #3 (articles appear/disappear incorrectly)
+        value_chain_articles = categories.get("value_chain", [])
+        if value_chain_articles:
+            upstream_articles = [a for a in value_chain_articles if a.get('value_chain_type') == 'upstream']
+            downstream_articles = [a for a in value_chain_articles if a.get('value_chain_type') == 'downstream']
+            categories["upstream"] = upstream_articles
+            categories["downstream"] = downstream_articles
+            LOG.info(f"[{ticker}] [JOB {job_id}] Split value_chain: upstream={len(upstream_articles)}, downstream={len(downstream_articles)}")
 
         # ============================================================
         # PHASE 1: Executive Summary Generation (30-60s)
