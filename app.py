@@ -12845,11 +12845,11 @@ async def generate_ai_final_summaries(articles_by_ticker: Dict[str, Dict[str, Li
                 phase1_5_generation_time_ms = 0
 
                 try:
-                    from modules.known_info_filter import filter_known_information, generate_known_info_filter_email, apply_filter_to_phase1
+                    from modules.known_info_filter import filter_known_information, generate_known_info_filter_email, apply_filter_to_phase1, has_phase1_bullets
 
                     phase1_5_enabled = is_phase_1_5_enabled()
 
-                    if phase1_5_enabled:
+                    if phase1_5_enabled and has_phase1_bullets(json_output):
                         LOG.info(f"[{ticker}] Phase 1.5: Running known info filter (PRODUCTION MODE)")
 
                         filter_result = filter_known_information(
@@ -12894,6 +12894,9 @@ async def generate_ai_final_summaries(articles_by_ticker: Dict[str, Dict[str, Li
                             LOG.info(f"[{ticker}] ✅ Phase 1.5 Applied: {summary.get('kept', 0)} kept, {summary.get('removed', 0)} removed ({phase1_5_model_used}, {phase1_5_prompt_tokens} prompt, {phase1_5_completion_tokens} completion)")
                         else:
                             LOG.warning(f"[{ticker}] Phase 1.5: Filter returned no results, using original Phase 1 JSON")
+                    elif phase1_5_enabled:
+                        # Phase 1.5 enabled but no bullets to filter (quiet day)
+                        LOG.info(f"[{ticker}] Phase 1.5: Skipped (no bullets from Phase 1 to filter)")
                     else:
                         LOG.info(f"[{ticker}] Phase 1.5: Skipped (disabled in system_config)")
 
@@ -17744,11 +17747,11 @@ async def process_regenerate_email_phase(job: dict):
         phase1_5_model_used = None
 
         try:
-            from modules.known_info_filter import filter_known_information, generate_known_info_filter_email, apply_filter_to_phase1
+            from modules.known_info_filter import filter_known_information, generate_known_info_filter_email, apply_filter_to_phase1, has_phase1_bullets
 
             phase1_5_enabled = is_phase_1_5_enabled()
 
-            if phase1_5_enabled:
+            if phase1_5_enabled and has_phase1_bullets(json_output):
                 LOG.info(f"[{ticker}] [JOB {job_id}] Phase 1.5: Running known info filter...")
 
                 filter_result = filter_known_information(
@@ -17789,6 +17792,9 @@ async def process_regenerate_email_phase(job: dict):
                     LOG.info(f"[{ticker}] ✅ [JOB {job_id}] Phase 1.5 Applied: {summary.get('kept', 0)} kept, {summary.get('removed', 0)} removed")
                 else:
                     LOG.warning(f"[{ticker}] [JOB {job_id}] Phase 1.5: Filter returned no results")
+            elif phase1_5_enabled:
+                # Phase 1.5 enabled but no bullets to filter (quiet day)
+                LOG.info(f"[{ticker}] [JOB {job_id}] Phase 1.5: Skipped (no bullets from Phase 1 to filter)")
             else:
                 LOG.info(f"[{ticker}] [JOB {job_id}] Phase 1.5: Skipped (disabled)")
 

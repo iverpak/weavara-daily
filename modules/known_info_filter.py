@@ -35,6 +35,38 @@ LOG = logging.getLogger(__name__)
 
 
 # =============================================================================
+# HELPER: CHECK IF PHASE 1 HAS BULLETS
+# =============================================================================
+
+def has_phase1_bullets(phase1_json: Dict) -> bool:
+    """
+    Check if Phase 1 JSON has any bullets to filter.
+
+    Used to skip Phase 1.5 entirely when Phase 1 produced no bullets
+    (e.g., quiet days with no relevant articles). This prevents the
+    AI from getting confused and fabricating bullets from filing content.
+
+    Args:
+        phase1_json: Phase 1 JSON output
+
+    Returns:
+        True if any bullet section has at least one bullet, False otherwise
+    """
+    BULLET_SECTIONS = [
+        'major_developments', 'financial_performance', 'risk_factors',
+        'wall_street_sentiment', 'competitive_industry_dynamics',
+        'upcoming_catalysts', 'key_variables'
+    ]
+
+    sections = phase1_json.get('sections', {})
+    for section_name in BULLET_SECTIONS:
+        section_data = sections.get(section_name, [])
+        if isinstance(section_data, list) and len(section_data) > 0:
+            return True
+    return False
+
+
+# =============================================================================
 # PROMPT
 # =============================================================================
 
