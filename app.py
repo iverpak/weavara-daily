@@ -26186,82 +26186,8 @@ def get_research_terminal_tickers(token: str = Query(...)):
     if not check_admin_token(token):
         return {"error": "Unauthorized"}
 
-    try:
-        # Use the same function as Phase 2 for consistency
-        from modules.executive_summary_phase2 import _fetch_available_filings
-
-        with db() as conn, conn.cursor() as cur:
-            # Get all tickers with documents from any of the 4 sources
-            cur.execute("""
-                SELECT DISTINCT ticker FROM (
-                    SELECT ticker FROM sec_filings WHERE filing_type IN ('10-K', '10-Q')
-                    UNION
-                    SELECT ticker FROM transcript_summaries WHERE report_type = 'transcript'
-                    UNION
-                    SELECT ticker FROM company_releases WHERE source_type = '8k_exhibit'
-                ) AS all_tickers
-                ORDER BY ticker
-            """)
-            tickers = [row['ticker'] for row in cur.fetchall()]
-
-        # For each ticker, get available documents using Phase 2 logic
-        documents = {}
-        for ticker in tickers:
-            filings = _fetch_available_filings(ticker, db)
-            docs = []
-
-            # 10-K
-            if '10k' in filings:
-                filing_date = filings['10k'].get('filing_date')
-                date_str = filing_date.strftime('%b %d, %Y') if hasattr(filing_date, 'strftime') else str(filing_date) if filing_date else 'N/A'
-                docs.append({
-                    'type': '10-K',
-                    'description': f"FY{filings['10k']['fiscal_year']} 10-K",
-                    'date': date_str
-                })
-
-            # 10-Q
-            if '10q' in filings:
-                filing_date = filings['10q'].get('filing_date')
-                date_str = filing_date.strftime('%b %d, %Y') if hasattr(filing_date, 'strftime') else str(filing_date) if filing_date else 'N/A'
-                docs.append({
-                    'type': '10-Q',
-                    'description': f"{filings['10q']['fiscal_quarter']} {filings['10q']['fiscal_year']} 10-Q",
-                    'date': date_str
-                })
-
-            # Transcript
-            if 'transcript' in filings:
-                report_date = filings['transcript'].get('date')
-                date_str = report_date.strftime('%b %d, %Y') if hasattr(report_date, 'strftime') else str(report_date) if report_date else 'N/A'
-                docs.append({
-                    'type': 'Transcript',
-                    'description': f"{filings['transcript']['fiscal_quarter']} {filings['transcript']['fiscal_year']} Earnings Call",
-                    'date': date_str
-                })
-
-            # 8-K filings (post-transcript, filtered by Phase 2 logic - no limit)
-            if '8k' in filings:
-                for eight_k in filings['8k']:
-                    filing_date = eight_k.get('filing_date')
-                    date_str = filing_date.strftime('%b %d, %Y') if hasattr(filing_date, 'strftime') else str(filing_date) if filing_date else 'N/A'
-                    docs.append({
-                        'type': '8-K',
-                        'description': eight_k.get('report_title', 'Unknown'),
-                        'date': date_str,
-                        'item_codes': eight_k.get('item_codes')
-                    })
-
-            documents[ticker] = docs
-
-        return {
-            "tickers": tickers,
-            "documents": documents
-        }
-
-    except Exception as e:
-        LOG.error(f"Failed to get research terminal tickers: {e}")
-        return {"error": str(e)}
+    from modules.research_terminal import get_available_tickers
+    return get_available_tickers(db)
 
 
 @APP.post("/api/admin/research-terminal-qa")
@@ -26279,109 +26205,12 @@ async def research_terminal_qa(request: Request):
         if not question:
             return {"error": "Question is required"}
 
-        # Use the same function as Phase 2 for consistency
-        from modules.executive_summary_phase2 import _fetch_available_filings
-        filings = _fetch_available_filings(ticker, db)
-
-        if not filings:
-            return {"error": f"No research documents found for {ticker}"}
-
-        # Build context from filings (same structure as Phase 2)
-        context_parts = []
-        sources_used = []
-
-        # 10-K
-        if '10k' in filings and filings['10k'].get('text'):
-            title = f"FY{filings['10k']['fiscal_year']} 10-K"
-            context_parts.append(f"=== {title} ===\n{filings['10k']['text']}")
-            sources_used.append(title)
-
-        # 10-Q
-        if '10q' in filings and filings['10q'].get('text'):
-            title = f"{filings['10q']['fiscal_quarter']} {filings['10q']['fiscal_year']} 10-Q"
-            context_parts.append(f"=== {title} ===\n{filings['10q']['text']}")
-            sources_used.append(title)
-
-        # Transcript
-        if 'transcript' in filings and filings['transcript'].get('text'):
-            title = f"{filings['transcript']['fiscal_quarter']} {filings['transcript']['fiscal_year']} Earnings Call Transcript"
-            context_parts.append(f"=== {title} ===\n{filings['transcript']['text']}")
-            sources_used.append(title)
-
-        # 8-K filings (post-transcript, filtered by Phase 2 logic - no limit)
-        if '8k' in filings:
-            for eight_k in filings['8k']:
-                if eight_k.get('summary_markdown'):
-                    filing_date = eight_k['filing_date']
-                    date_str = filing_date.strftime('%b %d, %Y') if hasattr(filing_date, 'strftime') else str(filing_date)
-                    title = f"{date_str} 8-K: {eight_k['report_title']}"
-                    context_parts.append(f"=== {title} ===\n{eight_k['summary_markdown']}")
-                    sources_used.append(title)
-
-        if not context_parts:
-            return {"error": f"No research documents found for {ticker}"}
-
-        # Build the full context
-        full_context = "\n\n".join(context_parts)
-
-        # Build the prompt
-        system_prompt = f"""You are a financial research assistant for {ticker}. You have access to the following research documents:
-
-{', '.join(sources_used)}
-
-Answer the user's question based ONLY on the information in these documents. When answering:
-1. Be specific and cite which document your information comes from (e.g., "Per the FY2024 10-K..." or "According to the Q3 2024 Earnings Call...")
-2. If the information is not found in the documents, say "This information is not available in the provided documents."
-3. Use markdown formatting for clarity (headers, bullet points, bold for emphasis)
-4. Be concise but thorough
-
-DOCUMENTS:
-
-{full_context}"""
-
-        user_prompt = question
-
-        # Call Gemini 2.5 Flash
         gemini_api_key = os.getenv("GEMINI_API_KEY")
         if not gemini_api_key:
             return {"error": "Gemini API key not configured"}
 
-        import google.generativeai as genai
-        genai.configure(api_key=gemini_api_key)
-
-        model = genai.GenerativeModel("gemini-2.5-flash")
-
-        # Count tokens (approximate)
-        input_text = system_prompt + "\n" + user_prompt
-        # Gemini doesn't have a direct token counter, estimate ~4 chars per token
-        estimated_input_tokens = len(input_text) // 4
-
-        response = model.generate_content(
-            [{"role": "user", "parts": [{"text": system_prompt + "\n\nQuestion: " + user_prompt}]}],
-            generation_config={
-                "temperature": 0.3,
-                "max_output_tokens": 16384,
-            }
-        )
-
-        answer = response.text
-
-        # Estimate output tokens
-        estimated_output_tokens = len(answer) // 4
-
-        # Calculate cost (Gemini 2.5 Flash pricing)
-        # Input: $0.075 per 1M tokens, Output: $0.30 per 1M tokens
-        input_cost = (estimated_input_tokens / 1_000_000) * 0.075
-        output_cost = (estimated_output_tokens / 1_000_000) * 0.30
-        total_cost = input_cost + output_cost
-
-        return {
-            "answer": answer,
-            "sources_used": sources_used,
-            "input_tokens": estimated_input_tokens,
-            "output_tokens": estimated_output_tokens,
-            "cost": total_cost
-        }
+        from modules.research_terminal import query_research_terminal
+        return query_research_terminal(ticker, question, db, gemini_api_key)
 
     except Exception as e:
         LOG.error(f"Research terminal Q&A failed: {e}")
