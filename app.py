@@ -12828,8 +12828,6 @@ async def generate_ai_final_summaries(articles_by_ticker: Dict[str, Dict[str, Li
             model_used = phase1_result["model_used"]
             prompt_tokens = phase1_result.get("prompt_tokens", 0)
             completion_tokens = phase1_result.get("completion_tokens", 0)
-            thought_tokens = phase1_result.get("thought_tokens", 0)  # Gemini 3.0 only
-            cached_tokens = phase1_result.get("cached_tokens", 0)    # Gemini 3.0 only
             generation_time_ms = phase1_result.get("generation_time_ms", 0)
 
             # Validate JSON structure
@@ -12846,14 +12844,12 @@ async def generate_ai_final_summaries(articles_by_ticker: Dict[str, Dict[str, Li
                 # Track Phase 1 cost based on which model was used
                 phase1_usage = {
                     "input_tokens": prompt_tokens,
-                    "output_tokens": completion_tokens,
-                    "thought_tokens": thought_tokens,
-                    "cached_tokens": cached_tokens
+                    "output_tokens": completion_tokens
                 }
 
                 if "gemini" in model_used.lower():
-                    # Gemini 3.0 Flash Preview (primary)
-                    calculate_gemini_api_cost(phase1_usage, "executive_summary_phase1", model="flash3", model_name=model_used)
+                    # Gemini primary succeeded (uses Pro for Phase 1)
+                    calculate_gemini_api_cost(phase1_usage, "executive_summary_phase1", model="pro", model_name=model_used)
                 elif "claude" in model_used.lower():
                     # Claude fallback succeeded
                     calculate_claude_api_cost(phase1_usage, "executive_summary_phase1", model_name=model_used)
@@ -13004,22 +13000,18 @@ async def generate_ai_final_summaries(articles_by_ticker: Dict[str, Dict[str, Li
                         generation_phase = 'phase2'
                         phase2_prompt_tokens = phase2_result.get("prompt_tokens", 0)
                         phase2_completion_tokens = phase2_result.get("completion_tokens", 0)
-                        phase2_thought_tokens = phase2_result.get("thought_tokens", 0)  # Gemini 3.0 only
-                        phase2_cached_tokens = phase2_result.get("cached_tokens", 0)    # Gemini 3.0 only
                         phase2_generation_time_ms = phase2_result.get("generation_time_ms", 0)
 
                         # Track Phase 2 cost based on which model was used
                         phase2_usage = {
                             "input_tokens": phase2_prompt_tokens,
-                            "output_tokens": phase2_completion_tokens,
-                            "thought_tokens": phase2_thought_tokens,
-                            "cached_tokens": phase2_cached_tokens
+                            "output_tokens": phase2_completion_tokens
                         }
                         phase2_model = phase2_result.get("ai_model", "")
 
                         if "gemini" in phase2_model.lower():
-                            # Gemini 3.0 Flash Preview (primary)
-                            calculate_gemini_api_cost(phase2_usage, "executive_summary_phase2", model="flash3", model_name=phase2_model)
+                            # Gemini primary succeeded (uses Pro for Phase 2)
+                            calculate_gemini_api_cost(phase2_usage, "executive_summary_phase2", model="pro", model_name=phase2_model)
                         elif "claude" in phase2_model.lower():
                             # Claude fallback succeeded
                             calculate_claude_api_cost(phase2_usage, "executive_summary_phase2", model_name=phase2_model)
@@ -13252,8 +13244,7 @@ async def generate_executive_summary_all_phases(
             if "claude" in phase3_model.lower():
                 calculate_claude_api_cost(phase3_usage, "executive_summary_phase3", model_name=phase3_model)
             elif "gemini" in phase3_model.lower():
-                # Gemini 3.0 Flash Preview (fallback)
-                calculate_gemini_api_cost(phase3_usage, "executive_summary_phase3", model="flash3", model_name=phase3_model)
+                calculate_gemini_api_cost(phase3_usage, "executive_summary_phase3", model="pro", model_name=phase3_model)
             else:
                 LOG.warning(f"[{ticker}] Phase 3 cost tracking: Unknown model '{phase3_model}'")
 
@@ -13323,8 +13314,7 @@ async def generate_executive_summary_all_phases(
             if "claude" in phase4_model.lower():
                 calculate_claude_api_cost(phase4_usage, "executive_summary_phase4", model_name=phase4_model)
             elif "gemini" in phase4_model.lower():
-                # Gemini 3.0 Flash Preview (fallback)
-                calculate_gemini_api_cost(phase4_usage, "executive_summary_phase4", model="flash3", model_name=phase4_model)
+                calculate_gemini_api_cost(phase4_usage, "executive_summary_phase4", model="pro", model_name=phase4_model)
 
         # Post-process Phase 4 dates (compute date_range from bullet dates, not AI)
         phase4_result = post_process_phase4_dates(
@@ -17785,8 +17775,6 @@ async def process_regenerate_email_phase(job: dict):
         model_used = phase1_result["model_used"]
         prompt_tokens = phase1_result.get("prompt_tokens", 0)
         completion_tokens = phase1_result.get("completion_tokens", 0)
-        thought_tokens = phase1_result.get("thought_tokens", 0)  # Gemini 3.0 only
-        cached_tokens = phase1_result.get("cached_tokens", 0)    # Gemini 3.0 only
         generation_time_ms = phase1_result.get("generation_time_ms", 0)
 
         # Validate JSON structure
@@ -17802,13 +17790,11 @@ async def process_regenerate_email_phase(job: dict):
         # Track Phase 1 cost
         phase1_usage = {
             "input_tokens": prompt_tokens,
-            "output_tokens": completion_tokens,
-            "thought_tokens": thought_tokens,
-            "cached_tokens": cached_tokens
+            "output_tokens": completion_tokens
         }
 
         if "gemini" in model_used.lower():
-            calculate_gemini_api_cost(phase1_usage, "executive_summary_phase1", model="flash3", model_name=model_used)
+            calculate_gemini_api_cost(phase1_usage, "executive_summary_phase1", model="pro", model_name=model_used)
         elif "claude" in model_used.lower():
             calculate_claude_api_cost(phase1_usage, "executive_summary_phase1", model_name=model_used)
 
@@ -17926,19 +17912,15 @@ async def process_regenerate_email_phase(job: dict):
 
                     phase2_prompt_tokens = phase2_result.get("prompt_tokens", 0)
                     phase2_completion_tokens = phase2_result.get("completion_tokens", 0)
-                    phase2_thought_tokens = phase2_result.get("thought_tokens", 0)  # Gemini 3.0 only
-                    phase2_cached_tokens = phase2_result.get("cached_tokens", 0)    # Gemini 3.0 only
 
                     phase2_usage = {
                         "input_tokens": phase2_prompt_tokens,
-                        "output_tokens": phase2_completion_tokens,
-                        "thought_tokens": phase2_thought_tokens,
-                        "cached_tokens": phase2_cached_tokens
+                        "output_tokens": phase2_completion_tokens
                     }
                     phase2_model = phase2_result.get("ai_model", "")
 
                     if "gemini" in phase2_model.lower():
-                        calculate_gemini_api_cost(phase2_usage, "executive_summary_phase2", model="flash3", model_name=phase2_model)
+                        calculate_gemini_api_cost(phase2_usage, "executive_summary_phase2", model="pro", model_name=phase2_model)
                     elif "claude" in phase2_model.lower():
                         calculate_claude_api_cost(phase2_usage, "executive_summary_phase2", model_name=phase2_model)
 
@@ -18054,8 +18036,7 @@ async def process_regenerate_email_phase(job: dict):
                     if "claude" in phase3_model.lower():
                         calculate_claude_api_cost(phase3_usage, "executive_summary_phase3", model_name=phase3_model)
                     elif "gemini" in phase3_model.lower():
-                        # Gemini 3.0 Flash Preview (fallback)
-                        calculate_gemini_api_cost(phase3_usage, "executive_summary_phase3", model="flash3", model_name=phase3_model)
+                        calculate_gemini_api_cost(phase3_usage, "executive_summary_phase3", model="pro", model_name=phase3_model)
 
                 update_job_status(job_id, progress=80)
 
@@ -18096,8 +18077,7 @@ async def process_regenerate_email_phase(job: dict):
                             if "claude" in phase4_model.lower():
                                 calculate_claude_api_cost(phase4_usage, "executive_summary_phase4", model_name=phase4_model)
                             elif "gemini" in phase4_model.lower():
-                                # Gemini 3.0 Flash Preview (fallback)
-                                calculate_gemini_api_cost(phase4_usage, "executive_summary_phase4", model="flash3", model_name=phase4_model)
+                                calculate_gemini_api_cost(phase4_usage, "executive_summary_phase4", model="pro", model_name=phase4_model)
 
                         # Phase 4 is mandatory - fail if it doesn't return a result
                         if not phase4_result:
