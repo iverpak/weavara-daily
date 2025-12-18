@@ -1833,7 +1833,7 @@ def ensure_schema():
                     ticker VARCHAR(10) NOT NULL,
                     summary_date DATE NOT NULL,
                     summary_text TEXT NOT NULL,
-                    ai_provider VARCHAR(20) NOT NULL,
+                    ai_provider VARCHAR(50) NOT NULL,
                     article_ids TEXT,
                     company_articles_count INTEGER,
                     industry_articles_count INTEGER,
@@ -1860,6 +1860,9 @@ def ensure_schema():
 
                 -- Add ai_models column for tracking AI models used per phase (Dec 2025)
                 ALTER TABLE executive_summaries ADD COLUMN IF NOT EXISTS ai_models JSONB;
+
+                -- Expand ai_provider to fit full model names like 'gemini-3-flash-preview' (Dec 2025)
+                ALTER TABLE executive_summaries ALTER COLUMN ai_provider TYPE VARCHAR(50);
 
                 -- TRANSCRIPT SUMMARIES: Store earnings transcript and press release summaries
                 CREATE TABLE IF NOT EXISTS transcript_summaries (
@@ -13057,7 +13060,8 @@ async def generate_ai_final_summaries(articles_by_ticker: Dict[str, Dict[str, Li
                 "phase1": phase1_result.get("model_used") if phase1_result else None,  # Phase 1 still uses "model_used"
                 "phase1_5": phase1_5_model_used,  # Phase 1.5 Known Info Filter (None if disabled/skipped)
                 "phase2": phase2_result.get("ai_model") if phase2_result else None,  # Phase 2 uses "ai_model"
-                "phase3": None  # Phase 3 not run yet
+                "phase3": None,  # Phase 3 - updated via update_executive_summary_json()
+                "phase4": None   # Phase 4 - updated via update_executive_summary_json()
             }
 
             # Save final merged JSON (Phase 1 or Phase 2)
@@ -14349,10 +14353,11 @@ async def build_enhanced_digest_html(articles_by_ticker: Dict[str, Dict[str, Lis
                             p1_5 = ai_models.get('phase1_5')  # May be None if disabled
                             p2 = ai_models.get('phase2', 'N/A')
                             p3 = ai_models.get('phase3', 'N/A')
+                            p4 = ai_models.get('phase4', 'N/A')
                             if p1_5:
-                                models_display = f"P1: {p1} | P1.5: {p1_5} | P2: {p2} | P3: {p3}"
+                                models_display = f"P1: {p1} | P1.5: {p1_5} | P2: {p2} | P3: {p3} | P4: {p4}"
                             else:
-                                models_display = f"P1: {p1} | P1.5: OFF | P2: {p2} | P3: {p3}"
+                                models_display = f"P1: {p1} | P1.5: OFF | P2: {p2} | P3: {p3} | P4: {p4}"
             except Exception as e:
                 LOG.warning(f"[{ticker}] Could not fetch model info: {e}")
 
@@ -17954,7 +17959,8 @@ async def process_regenerate_email_phase(job: dict):
             "phase1": model_used,
             "phase1_5": phase1_5_model_used,
             "phase2": phase2_result.get("ai_model") if phase2_result else None,
-            "phase3": None
+            "phase3": None,  # Updated via update_executive_summary_json()
+            "phase4": None   # Updated via update_executive_summary_json()
         }
 
         # Update executive summary WITHOUT overwriting article_ids

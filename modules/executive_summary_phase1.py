@@ -501,7 +501,7 @@ def _generate_phase1_claude(
 
             return {
                 "json_output": json_output,
-                "model_used": "claude",
+                "model_used": "claude-sonnet-4-5-20250929",
                 "prompt_tokens": prompt_tokens,
                 "completion_tokens": completion_tokens,
                 "generation_time_ms": generation_time_ms
