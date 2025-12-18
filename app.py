@@ -15916,8 +15916,9 @@ def generate_email_html_core(
 
         sections = convert_phase1_to_sections_dict(json_output)
         # Get indices of articles used in bullets that survived filtering
-        used_article_indices = get_used_article_indices(json_output)
-        LOG.info(f"[{ticker}] Email #3: {len(used_article_indices)} article indices used in final report (after deduplication)")
+        # Pass report_type to exclude hidden sections (daily hides upcoming_catalysts, key_variables)
+        used_article_indices = get_used_article_indices(json_output, report_type=report_type)
+        LOG.info(f"[{ticker}] Email #3: {len(used_article_indices)} article indices used in final report (after deduplication, report_type={report_type})")
     except json.JSONDecodeError as e:
         LOG.error(f"[{ticker}] Failed to parse Phase 3 JSON in Email #3: {e}")
         sections = {}  # Empty sections

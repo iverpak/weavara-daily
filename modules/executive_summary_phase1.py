@@ -717,7 +717,7 @@ def validate_phase1_json(json_output: Dict) -> Tuple[bool, str]:
         return False, f"Validation exception: {str(e)}"
 
 
-def get_used_article_indices(phase_json: Dict) -> set:
+def get_used_article_indices(phase_json: Dict, report_type: str = 'weekly') -> set:
     """
     Collect article indices from bullets/paragraphs that pass Email #3 filtering.
 
@@ -730,6 +730,9 @@ def get_used_article_indices(phase_json: Dict) -> set:
 
     Args:
         phase_json: Phase 1+2 (or Phase 2+3) merged JSON with source_articles fields
+        report_type: 'daily' or 'weekly' - determines which sections to include.
+                     Daily reports hide upcoming_catalysts and key_variables.
+                     Default 'weekly' includes all sections (backward compatible).
 
     Returns:
         Set of 0-indexed article numbers that contributed to the final report.
@@ -744,6 +747,11 @@ def get_used_article_indices(phase_json: Dict) -> set:
         "wall_street_sentiment", "competitive_industry_dynamics",
         "upcoming_catalysts", "key_variables"
     ]
+
+    # Daily reports hide certain sections - don't collect article indices from them
+    # This ensures Source Articles only shows articles used in VISIBLE sections
+    if report_type == 'daily':
+        bullet_sections = [s for s in bullet_sections if s not in ('upcoming_catalysts', 'key_variables')]
 
     for section_name in bullet_sections:
         section_content = sections.get(section_name, [])
