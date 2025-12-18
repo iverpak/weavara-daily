@@ -26191,6 +26191,21 @@ def get_research_terminal_tickers(token: str = Query(...)):
     return get_available_tickers(db)
 
 
+@APP.get("/api/admin/research-terminal-documents")
+def get_research_terminal_documents(ticker: str = Query(...), token: str = Query(...)):
+    """Get available documents for a specific ticker (lazy loading on selection)"""
+    if not check_admin_token(token):
+        return {"error": "Unauthorized"}
+
+    from modules.research_terminal import build_documents_list
+    try:
+        documents = build_documents_list(ticker, db)
+        return {"ticker": ticker, "documents": documents}
+    except Exception as e:
+        LOG.error(f"[{ticker}] Failed to get research terminal documents: {e}")
+        return {"error": str(e)}
+
+
 @APP.post("/api/admin/research-terminal-qa")
 async def research_terminal_qa(request: Request):
     """Ask a question about research documents for a ticker using Gemini 2.5 Flash"""

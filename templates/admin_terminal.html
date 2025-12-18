@@ -345,9 +345,9 @@
         const tokenStats = document.getElementById('token-stats');
         const errorContainer = document.getElementById('error-container');
 
-        let tickerDocuments = {}; // Cache documents per ticker
+        let tickerDocuments = {}; // Cache documents per ticker (lazy loaded)
 
-        // Load tickers on page load
+        // Load tickers on page load (fast - just ticker list)
         async function loadTickers() {
             try {
                 const response = await fetch(`/api/admin/research-terminal-tickers?token=${token}`);
@@ -370,24 +370,50 @@
                     option.textContent = ticker;
                     tickerSelect.appendChild(option);
                 });
-
-                // Cache documents data
-                tickerDocuments = data.documents || {};
             } catch (error) {
                 console.error('Failed to load tickers:', error);
                 tickerSelect.innerHTML = '<option value="">Failed to load tickers</option>';
             }
         }
 
-        // Display documents for selected ticker
-        function displayDocuments(ticker) {
-            if (!ticker || !tickerDocuments[ticker]) {
+        // Fetch and display documents for selected ticker (lazy loading)
+        async function fetchAndDisplayDocuments(ticker) {
+            if (!ticker) {
                 documentsContainer.style.display = 'none';
                 return;
             }
 
-            const docs = tickerDocuments[ticker];
-            if (docs.length === 0) {
+            // Check cache first
+            if (tickerDocuments[ticker]) {
+                renderDocuments(tickerDocuments[ticker]);
+                return;
+            }
+
+            // Show loading state
+            documentsList.innerHTML = '<div class="doc-meta">Loading documents...</div>';
+            documentsContainer.style.display = 'block';
+
+            try {
+                const response = await fetch(`/api/admin/research-terminal-documents?ticker=${ticker}&token=${token}`);
+                const data = await response.json();
+
+                if (data.error) {
+                    documentsList.innerHTML = `<div class="doc-meta">Error: ${data.error}</div>`;
+                    return;
+                }
+
+                // Cache and render
+                tickerDocuments[ticker] = data.documents || [];
+                renderDocuments(tickerDocuments[ticker]);
+            } catch (error) {
+                console.error('Failed to load documents:', error);
+                documentsList.innerHTML = '<div class="doc-meta">Failed to load documents</div>';
+            }
+        }
+
+        // Render documents list
+        function renderDocuments(docs) {
+            if (!docs || docs.length === 0) {
                 documentsContainer.style.display = 'none';
                 return;
             }
@@ -412,7 +438,7 @@
         // Handle ticker selection
         tickerSelect.addEventListener('change', function() {
             const ticker = this.value;
-            displayDocuments(ticker);
+            fetchAndDisplayDocuments(ticker);
             updateAskButton();
             // Clear previous answer
             answerBox.classList.remove('visible');

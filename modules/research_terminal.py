@@ -287,8 +287,8 @@ def query_research_terminal(
         usage = response.usage_metadata
         input_tokens = usage.prompt_token_count
         output_tokens = usage.candidates_token_count
-        # cached_content_token_count may be absent on first call (no cache hit)
-        cached_tokens = getattr(usage, 'cached_content_token_count', 0)
+        # cached_content_token_count may be absent or None on first call (no cache hit)
+        cached_tokens = getattr(usage, 'cached_content_token_count', 0) or 0
 
         # Calculate cost (Gemini 3.0 Flash pricing)
         # Cached tokens cost 90% less ($0.05 per 1M vs $0.50)
@@ -346,13 +346,14 @@ def get_available_tickers(db_func: Callable) -> Dict[str, Any]:
     """
     Get all tickers that have at least one research document.
 
+    Fast query - only returns ticker list. Documents fetched separately on selection.
+
     Args:
         db_func: Database connection function
 
     Returns:
         Dict with:
             - tickers: List of ticker symbols
-            - documents: Dict mapping ticker to list of available documents
             - error: Error message if failed (optional)
     """
     try:
@@ -370,15 +371,7 @@ def get_available_tickers(db_func: Callable) -> Dict[str, Any]:
             """)
             tickers = [row['ticker'] for row in cur.fetchall()]
 
-        # For each ticker, get available documents using Phase 2 logic
-        documents = {}
-        for ticker in tickers:
-            documents[ticker] = build_documents_list(ticker, db_func)
-
-        return {
-            "tickers": tickers,
-            "documents": documents
-        }
+        return {"tickers": tickers}
 
     except Exception as e:
         LOG.error(f"Failed to get research terminal tickers: {e}")
