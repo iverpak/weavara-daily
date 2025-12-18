@@ -26301,6 +26301,69 @@ def admin_terminal_page(request: Request, token: str = Query(...)):
         "staging_mode": STAGING_MODE
     })
 
+
+# ------------------------------------------------------------------------------
+# FINANCIAL SNAPSHOT (Admin Dashboard)
+# ------------------------------------------------------------------------------
+
+@APP.get("/admin/snapshot")
+def admin_snapshot_page(request: Request, token: str = Query(...)):
+    """Financial Snapshot - Historical financials and key metrics"""
+    if not check_admin_token(token):
+        return HTMLResponse("Unauthorized", status_code=401)
+
+    return templates.TemplateResponse("admin_snapshot.html", {
+        "request": request,
+        "token": token,
+        "staging_mode": STAGING_MODE
+    })
+
+
+@APP.get("/api/snapshot/{ticker}")
+def api_get_financial_snapshot(ticker: str, token: str = Query(...)):
+    """
+    Generate financial snapshot for a ticker.
+
+    Returns JSON with:
+    - Company info (name, sector, price, market cap)
+    - 5 years of annual financials
+    - 12 quarters of quarterly financials (calendar-fixed grid)
+    - 19 key metrics
+    """
+    if not check_admin_token(token):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    from modules.financial_snapshot import (
+        FinancialSnapshotAnalyzer,
+        TickerNotFoundError,
+        NoFinancialDataError,
+        FMPClientError
+    )
+
+    fmp_api_key = os.getenv("FMP_API_KEY")
+    if not fmp_api_key:
+        raise HTTPException(status_code=500, detail="FMP_API_KEY not configured")
+
+    try:
+        analyzer = FinancialSnapshotAnalyzer(fmp_api_key)
+        result = analyzer.get_financial_snapshot(ticker)
+        return result
+
+    except TickerNotFoundError as e:
+        raise HTTPException(status_code=404, detail=f"Ticker not found: {ticker}")
+
+    except NoFinancialDataError as e:
+        raise HTTPException(status_code=404, detail=f"No financial data available for {ticker}")
+
+    except FMPClientError as e:
+        LOG.error(f"[SNAPSHOT] FMP API error for {ticker}: {e}")
+        raise HTTPException(status_code=502, detail=f"FMP API error: {str(e)}")
+
+    except Exception as e:
+        LOG.exception(f"[SNAPSHOT] Unexpected error for {ticker}: {e}")
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+
+
 # ------------------------------------------------------------------------------
 # CRON JOB API ENDPOINTS (for /admin/cron page)
 # ------------------------------------------------------------------------------

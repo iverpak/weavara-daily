@@ -1,0 +1,673 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Financial Snapshot - Weavara Admin</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f8f9fa;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%);
+            color: #ffffff;
+            padding: 24px 32px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        .header .back-link {
+            display: inline-block;
+            color: #ffffff;
+            text-decoration: none;
+            margin-bottom: 12px;
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        .header .back-link:hover {
+            opacity: 1;
+        }
+
+        .container {
+            max-width: 1400px;
+            margin: 40px auto;
+            padding: 0 20px;
+        }
+
+        .card {
+            background: #ffffff;
+            padding: 24px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-bottom: 24px;
+        }
+
+        .card h2 {
+            font-size: 18px;
+            font-weight: 700;
+            color: #111827;
+            margin-bottom: 16px;
+        }
+
+        .input-row {
+            display: flex;
+            gap: 12px;
+            align-items: flex-end;
+        }
+
+        .input-group {
+            flex: 1;
+            max-width: 300px;
+        }
+
+        label {
+            display: block;
+            font-size: 14px;
+            font-weight: 600;
+            color: #374151;
+            margin-bottom: 8px;
+        }
+
+        input[type="text"] {
+            width: 100%;
+            padding: 12px;
+            font-size: 14px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            transition: border-color 0.2s;
+            text-transform: uppercase;
+        }
+
+        input[type="text"]:focus {
+            outline: none;
+            border-color: #1e40af;
+        }
+
+        button {
+            background: #1e40af;
+            color: #ffffff;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+            white-space: nowrap;
+        }
+
+        button:hover {
+            background: #1e3a8a;
+        }
+
+        button:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #ffffff;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        /* Error/Info Messages */
+        .message {
+            padding: 16px;
+            border-radius: 8px;
+            margin-bottom: 24px;
+            font-size: 14px;
+        }
+
+        .message.error {
+            background: #fef2f2;
+            border-left: 4px solid #ef4444;
+            color: #991b1b;
+        }
+
+        .message.info {
+            background: #eff6ff;
+            border-left: 4px solid #3b82f6;
+            color: #1e40af;
+        }
+
+        /* Company Header */
+        .company-header {
+            background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%);
+            color: white;
+            padding: 20px 24px;
+            border-radius: 8px;
+            margin-bottom: 24px;
+        }
+
+        .company-header h3 {
+            font-size: 24px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .company-header .meta {
+            display: flex;
+            gap: 24px;
+            flex-wrap: wrap;
+            font-size: 14px;
+            opacity: 0.95;
+        }
+
+        .company-header .meta-item {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+
+        .company-header .meta-label {
+            opacity: 0.8;
+        }
+
+        .company-header .meta-value {
+            font-weight: 600;
+        }
+
+        /* Financial Table */
+        .table-container {
+            overflow-x: auto;
+            margin-top: 16px;
+        }
+
+        .financial-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 13px;
+            min-width: 1200px;
+        }
+
+        .financial-table th,
+        .financial-table td {
+            padding: 10px 8px;
+            text-align: right;
+            border-bottom: 1px solid #e5e7eb;
+            white-space: nowrap;
+        }
+
+        .financial-table th {
+            background: #1e3a8a;
+            color: #ffffff;
+            font-weight: 600;
+            font-size: 12px;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+
+        .financial-table th:first-child {
+            text-align: left;
+            width: 140px;
+            min-width: 140px;
+        }
+
+        .financial-table td:first-child {
+            text-align: left;
+            font-weight: 600;
+            color: #111827;
+            background: #f9fafb;
+            position: sticky;
+            left: 0;
+            z-index: 5;
+        }
+
+        /* Column widths */
+        .financial-table th.data-col,
+        .financial-table td.data-col {
+            width: 70px;
+            min-width: 70px;
+        }
+
+        /* Gap column */
+        .financial-table th.gap-col,
+        .financial-table td.gap-col {
+            width: 16px;
+            min-width: 16px;
+            max-width: 16px;
+            background: #e5e7eb !important;
+            border-left: 2px solid #d1d5db;
+            border-right: 2px solid #d1d5db;
+        }
+
+        /* Zebra striping */
+        .financial-table tbody tr:nth-child(even) td {
+            background: #f9fafb;
+        }
+
+        .financial-table tbody tr:nth-child(even) td:first-child {
+            background: #f3f4f6;
+        }
+
+        /* Section separator rows */
+        .financial-table tr.section-separator td {
+            height: 8px;
+            background: #e5e7eb !important;
+            border: none;
+            padding: 0;
+        }
+
+        /* Section header rows */
+        .financial-table tr.section-header td {
+            background: #dbeafe !important;
+            font-weight: 700;
+            color: #1e40af;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border-top: 2px solid #93c5fd;
+        }
+
+        /* Negative values */
+        .negative {
+            color: #dc2626;
+        }
+
+        /* Empty cells */
+        .empty-cell {
+            color: #9ca3af;
+        }
+
+        /* Method note */
+        .method-note {
+            margin-top: 16px;
+            padding: 12px 16px;
+            background: #fef3c7;
+            border-left: 4px solid #f59e0b;
+            border-radius: 4px;
+            font-size: 13px;
+            color: #92400e;
+        }
+
+        /* Footer notes */
+        .footer-notes {
+            margin-top: 24px;
+            padding: 16px;
+            background: #f9fafb;
+            border-radius: 8px;
+            font-size: 12px;
+            color: #6b7280;
+            line-height: 1.6;
+        }
+
+        .footer-notes ul {
+            margin-left: 16px;
+            margin-top: 8px;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 40px 20px;
+            color: #6b7280;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    {% if staging_mode %}
+    <div style="background: #dc2626; color: white; padding: 10px 20px; text-align: center; font-weight: 600; font-size: 14px; letter-spacing: 0.5px;">
+        ⚠️ STAGING
+    </div>
+    {% endif %}
+
+    <div class="header">
+        <a href="/admin?token={{ token }}" class="back-link">← Back to Dashboard</a>
+        <h1>📊 Financial Snapshot</h1>
+        <p>Historical financials and key metrics for publicly traded companies</p>
+    </div>
+
+    <div class="container">
+        <!-- Ticker Input Card -->
+        <div class="card">
+            <h2>Generate Snapshot</h2>
+            <div class="input-row">
+                <div class="input-group">
+                    <label>Ticker Symbol</label>
+                    <input type="text" id="ticker-input" placeholder="e.g., AAPL, MSFT, RY.TO"
+                           onkeypress="if(event.key === 'Enter') generateSnapshot()">
+                </div>
+                <button id="generate-btn" onclick="generateSnapshot()">
+                    Generate Snapshot
+                </button>
+            </div>
+        </div>
+
+        <!-- Error Message -->
+        <div id="error-message" class="message error" style="display: none;"></div>
+
+        <!-- Results Container -->
+        <div id="results-container" style="display: none;">
+            <!-- Company Header -->
+            <div id="company-header" class="company-header">
+                <h3 id="company-name">Company Name</h3>
+                <div class="meta">
+                    <div class="meta-item">
+                        <span class="meta-label">Ticker:</span>
+                        <span class="meta-value" id="company-ticker">AAPL</span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Sector:</span>
+                        <span class="meta-value" id="company-sector">Technology</span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Industry:</span>
+                        <span class="meta-value" id="company-industry">Consumer Electronics</span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Price:</span>
+                        <span class="meta-value" id="company-price">$150.00</span>
+                    </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Market Cap:</span>
+                        <span class="meta-value" id="company-mcap">$2,500B</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Financial Table Card -->
+            <div class="card">
+                <h2>Historical Financials</h2>
+                <p style="color: #6b7280; font-size: 13px; margin-bottom: 8px;">
+                    Annual data (left) | Quarterly data (right) • All dollar amounts in millions
+                </p>
+                <div class="table-container">
+                    <table class="financial-table" id="financial-table">
+                        <!-- Table will be populated by JavaScript -->
+                    </table>
+                </div>
+
+                <div id="method-note" class="method-note" style="display: none;">
+                    <strong>EBITDA Method:</strong> <span id="ebitda-method"></span>
+                </div>
+            </div>
+
+            <!-- Footer Notes -->
+            <div class="footer-notes">
+                <strong>Notes:</strong>
+                <ul>
+                    <li>All financial figures are in millions USD</li>
+                    <li>Quarterly ratios (Net Leverage, EV/EBITDA, P/S, FCF Yield) use TTM (trailing twelve months)</li>
+                    <li>Negative values shown in red with parentheses</li>
+                    <li>Empty cells indicate data not yet reported or unavailable</li>
+                    <li>Data source: Financial Modeling Prep API</li>
+                </ul>
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">
+        &copy; 2025 Weavara. For informational purposes only. Not investment advice.
+    </div>
+
+    <script>
+        const TOKEN = '{{ token }}';
+
+        // Metric definitions with formatting rules
+        const METRICS = [
+            // Income section
+            { key: 'Sales', label: 'Sales', format: 'dollar', section: 'income' },
+            { key: 'EBITDA', label: 'EBITDA', format: 'dollar', section: 'income' },
+            { key: 'EBITDA Margin', label: 'EBITDA Margin', format: 'percent', section: 'income' },
+            { key: 'Revenue Y/Y', label: 'Revenue Y/Y', format: 'percent', section: 'income' },
+            { key: 'EBITDA Y/Y', label: 'EBITDA Y/Y', format: 'percent', section: 'income' },
+            { key: 'EPS', label: 'EPS (Diluted)', format: 'eps', section: 'income' },
+            // Cash Flow section
+            { key: 'OCF', label: 'Operating Cash Flow', format: 'dollar', section: 'cashflow' },
+            { key: 'CapEx', label: 'CapEx', format: 'dollar', section: 'cashflow' },
+            { key: 'Free Cash Flow', label: 'Free Cash Flow', format: 'dollar', section: 'cashflow' },
+            // Balance Sheet section
+            { key: 'Gross Debt', label: 'Gross Debt', format: 'dollar', section: 'balance' },
+            { key: 'Cash', label: 'Cash', format: 'dollar', section: 'balance' },
+            { key: 'Net Debt', label: 'Net Debt', format: 'dollar', section: 'balance' },
+            { key: 'Net Leverage', label: 'Net Leverage', format: 'multiple', section: 'balance' },
+            // Valuation section
+            { key: 'Market Cap', label: 'Market Cap', format: 'dollar', section: 'valuation' },
+            { key: 'EV', label: 'Enterprise Value', format: 'dollar', section: 'valuation' },
+            { key: 'EV/EBITDA', label: 'EV/EBITDA', format: 'multiple', section: 'valuation' },
+            { key: 'P/S', label: 'P/S', format: 'multiple', section: 'valuation' },
+            { key: 'FCF Yield', label: 'FCF Yield', format: 'percent', section: 'valuation' },
+            { key: 'Dividend Yield', label: 'Dividend Yield', format: 'percent', section: 'valuation' },
+        ];
+
+        const SECTION_LABELS = {
+            'income': 'Income Statement',
+            'cashflow': 'Cash Flow',
+            'balance': 'Balance Sheet',
+            'valuation': 'Valuation'
+        };
+
+        function formatValue(value, format) {
+            if (value === null || value === undefined) {
+                return { text: '—', isNegative: false, isEmpty: true };
+            }
+
+            let isNegative = value < 0;
+            let text = '';
+
+            switch (format) {
+                case 'dollar':
+                    if (isNegative) {
+                        text = `($${Math.abs(value).toLocaleString('en-US', { maximumFractionDigits: 0 })})`;
+                    } else {
+                        text = `$${value.toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
+                    }
+                    break;
+                case 'percent':
+                    if (isNegative) {
+                        text = `(${Math.abs(value).toFixed(1)}%)`;
+                    } else {
+                        text = `${value.toFixed(1)}%`;
+                    }
+                    break;
+                case 'multiple':
+                    if (isNegative) {
+                        text = `(${Math.abs(value).toFixed(1)}x)`;
+                    } else {
+                        text = `${value.toFixed(1)}x`;
+                    }
+                    break;
+                case 'eps':
+                    if (isNegative) {
+                        text = `($${Math.abs(value).toFixed(2)})`;
+                    } else {
+                        text = `$${value.toFixed(2)}`;
+                    }
+                    break;
+                default:
+                    text = value.toString();
+            }
+
+            return { text, isNegative, isEmpty: false };
+        }
+
+        function formatMarketCap(value) {
+            if (!value) return 'N/A';
+            if (value >= 1e12) {
+                return `$${(value / 1e12).toFixed(2)}T`;
+            } else if (value >= 1e9) {
+                return `$${(value / 1e9).toFixed(1)}B`;
+            } else if (value >= 1e6) {
+                return `$${(value / 1e6).toFixed(0)}M`;
+            }
+            return `$${value.toLocaleString()}`;
+        }
+
+        function buildTable(data) {
+            const table = document.getElementById('financial-table');
+            const annualCols = data.columns.annual;
+            const quarterlyCols = data.columns.quarterly;
+
+            // Build header row
+            let headerHtml = '<thead><tr><th>Metric</th>';
+
+            // Annual headers
+            annualCols.forEach(year => {
+                headerHtml += `<th class="data-col">${year}</th>`;
+            });
+
+            // Gap column
+            headerHtml += '<th class="gap-col"></th>';
+
+            // Quarterly headers
+            quarterlyCols.forEach(q => {
+                headerHtml += `<th class="data-col">${q}</th>`;
+            });
+
+            headerHtml += '</tr></thead>';
+
+            // Build body rows
+            let bodyHtml = '<tbody>';
+            let currentSection = null;
+
+            METRICS.forEach((metric, idx) => {
+                // Add section header if section changed
+                if (metric.section !== currentSection) {
+                    if (currentSection !== null) {
+                        // Add separator row between sections
+                        bodyHtml += `<tr class="section-separator"><td colspan="${annualCols.length + quarterlyCols.length + 2}"></td></tr>`;
+                    }
+                    currentSection = metric.section;
+                }
+
+                const metricData = data.metrics[metric.key];
+                if (!metricData) return;
+
+                bodyHtml += '<tr>';
+                bodyHtml += `<td>${metric.label}</td>`;
+
+                // Annual values
+                metricData.annual.forEach(val => {
+                    const formatted = formatValue(val, metric.format);
+                    let classes = 'data-col';
+                    if (formatted.isNegative) classes += ' negative';
+                    if (formatted.isEmpty) classes += ' empty-cell';
+                    bodyHtml += `<td class="${classes}">${formatted.text}</td>`;
+                });
+
+                // Gap column
+                bodyHtml += '<td class="gap-col"></td>';
+
+                // Quarterly values
+                metricData.quarterly.forEach(val => {
+                    const formatted = formatValue(val, metric.format);
+                    let classes = 'data-col';
+                    if (formatted.isNegative) classes += ' negative';
+                    if (formatted.isEmpty) classes += ' empty-cell';
+                    bodyHtml += `<td class="${classes}">${formatted.text}</td>`;
+                });
+
+                bodyHtml += '</tr>';
+            });
+
+            bodyHtml += '</tbody>';
+
+            table.innerHTML = headerHtml + bodyHtml;
+        }
+
+        async function generateSnapshot() {
+            const ticker = document.getElementById('ticker-input').value.trim().toUpperCase();
+            if (!ticker) {
+                showError('Please enter a ticker symbol');
+                return;
+            }
+
+            const btn = document.getElementById('generate-btn');
+            const errorDiv = document.getElementById('error-message');
+            const resultsDiv = document.getElementById('results-container');
+
+            // Reset state
+            errorDiv.style.display = 'none';
+            resultsDiv.style.display = 'none';
+
+            // Show loading state
+            btn.disabled = true;
+            btn.innerHTML = '<span class="loading"></span>Generating...';
+
+            try {
+                const response = await fetch(`/api/snapshot/${ticker}?token=${TOKEN}`);
+                const result = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(result.detail || result.error || 'Failed to generate snapshot');
+                }
+
+                // Populate company header
+                document.getElementById('company-name').textContent = result.company_name;
+                document.getElementById('company-ticker').textContent = result.ticker;
+                document.getElementById('company-sector').textContent = result.sector || 'N/A';
+                document.getElementById('company-industry').textContent = result.industry || 'N/A';
+                document.getElementById('company-price').textContent = result.current_price
+                    ? `$${result.current_price.toFixed(2)}` : 'N/A';
+                document.getElementById('company-mcap').textContent = formatMarketCap(result.market_cap);
+
+                // Build financial table
+                buildTable(result);
+
+                // Show EBITDA method note
+                if (result.ebitda_method && result.ebitda_method !== 'N/A') {
+                    document.getElementById('ebitda-method').textContent = result.ebitda_method;
+                    document.getElementById('method-note').style.display = 'block';
+                } else {
+                    document.getElementById('method-note').style.display = 'none';
+                }
+
+                // Show results
+                resultsDiv.style.display = 'block';
+
+                // Scroll to results
+                resultsDiv.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+            } catch (error) {
+                showError(error.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = 'Generate Snapshot';
+            }
+        }
+
+        function showError(message) {
+            const errorDiv = document.getElementById('error-message');
+            errorDiv.textContent = message;
+            errorDiv.style.display = 'block';
+        }
+
+        // Focus input on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            document.getElementById('ticker-input').focus();
+        });
+    </script>
+</body>
+</html>
