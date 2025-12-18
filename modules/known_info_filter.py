@@ -1937,7 +1937,7 @@ def filter_known_information(
     # Try Gemini first
     result = None
     if gemini_api_key:
-        LOG.info(f"[{ticker}] Phase 1.5: Attempting Gemini 2.5 Flash (primary)")
+        LOG.info(f"[{ticker}] Phase 1.5: Attempting Gemini 3.0 Flash Preview (primary)")
         result = _filter_known_info_gemini(ticker, phase1_json, filings, gemini_api_key, eight_k_filings)
 
         if result and result.get("json_output"):
