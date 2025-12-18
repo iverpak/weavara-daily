@@ -138,6 +138,25 @@ def call_with_retry(
             return None
 
         except Exception as e:
+            error_str = str(e).lower()
+
+            # Check for timeout errors - retry with same backoff as 503
+            is_timeout = (
+                'timeout' in error_str or
+                'deadline' in error_str or
+                'timed out' in error_str
+            )
+
+            if is_timeout:
+                if attempt < max_retries:
+                    wait_time = (1.5 ** attempt) + random.uniform(0, 1)
+                    LOG.warning(f"[{ticker}] ⏱️ Timeout (attempt {attempt + 1}/{max_retries + 1}), retrying in {wait_time:.1f}s...")
+                    time.sleep(wait_time)
+                    continue
+                else:
+                    LOG.error(f"[{ticker}] ❌ Timeout after {max_retries + 1} attempts: {e}")
+                    return None
+
             # Unexpected errors - log and don't retry
             LOG.error(f"[{ticker}] ❌ Unexpected error: {e}")
             import traceback
