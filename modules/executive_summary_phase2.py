@@ -494,7 +494,13 @@ def _generate_phase2_gemini(
     db_func
 ) -> Optional[Dict]:
     """
-    Generate Phase 2 enrichments using Gemini 2.5 Pro.
+    Generate Phase 2 enrichments using Gemini 3.0 Flash Preview.
+
+    Migration Notes (Dec 2025):
+    - Upgraded from Gemini 2.5 Pro to Gemini 3.0 Flash Preview
+    - New SDK: google-genai (not google-generativeai)
+    - Temperature: 1.0 (required for reasoning) with seed=42 for determinism
+    - Thinking Level: HIGH for best accuracy
 
     Args:
         ticker: Stock ticker symbol
@@ -507,19 +513,25 @@ def _generate_phase2_gemini(
     Returns:
         dict with:
             enrichments: dict keyed by bullet_id with impact, sentiment, reason, context
-            ai_model: "gemini-2.5-pro"
+            ai_model: "gemini-3-flash-preview"
             prompt_tokens: int
             completion_tokens: int
+            thought_tokens: int (reasoning tokens, billed as output)
+            cached_tokens: int (tokens served from cache)
             generation_time_ms: int
         Or None if failed
     """
-    import time
-    import google.generativeai as genai
+    from google.genai import types
+    from modules.gemini_3_utils import (
+        create_gemini_3_client,
+        call_with_retry,
+        extract_usage_metadata,
+        extract_response_text,
+        build_thinking_config,
+        calculate_flash_3_cost
+    )
 
     try:
-        # Configure Gemini
-        genai.configure(api_key=gemini_api_key)
-
         # Load system prompt (static, no entity injection for caching)
         system_prompt = get_phase2_system_prompt()
 
@@ -557,69 +569,49 @@ Downstream Customers: {entity_refs['downstream']}
         total_tokens_est = system_tokens_est + user_tokens_est
         LOG.info(f"[{ticker}] Phase 2 Gemini prompt size: system={len(system_prompt)} chars (~{system_tokens_est} tokens), user={len(user_content)} chars (~{user_tokens_est} tokens), total=~{total_tokens_est} tokens")
 
-        # Create Gemini model with system instruction
-        model = genai.GenerativeModel(
-            'gemini-2.5-pro',
-            system_instruction=system_prompt
+        # Create client with 120s timeout for HIGH thinking
+        client = create_gemini_3_client(gemini_api_key, timeout=120.0)
+
+        # Build contents with system prompt first (enables implicit caching)
+        contents = [
+            types.Part.from_text(text=system_prompt),
+            types.Part.from_text(text=user_content)
+        ]
+
+        # Configure for HIGH thinking with deterministic output
+        config_obj = build_thinking_config(
+            thinking_level="HIGH",
+            include_thoughts=False,
+            temperature=1.0,
+            max_output_tokens=20000,
+            seed=42,
+            response_mime_type="application/json"
         )
 
-        LOG.info(f"[{ticker}] Calling Gemini 2.5 Pro for Phase 2 enrichment")
+        LOG.info(f"[{ticker}] Phase 2: Calling Gemini 3.0 Flash Preview (thinking=HIGH)")
 
-        # Retry logic for transient errors
-        max_retries = 2
-        response = None
-        generation_time_ms = 0
+        start_time = time.time()
 
-        for attempt in range(max_retries + 1):
-            try:
-                start_time = time.time()
-                response = model.generate_content(
-                    user_content,
-                    generation_config={
-                        'temperature': 0.0,
-                        'max_output_tokens': 20000,
-                        'response_mime_type': 'application/json'
-                    }
-                )
-                generation_time_ms = int((time.time() - start_time) * 1000)
+        # Call with smart retry (handles 429 vs 503 vs timeout differently)
+        response = call_with_retry(
+            client=client,
+            model="gemini-3-flash-preview",
+            contents=contents,
+            config=config_obj,
+            max_retries=2,
+            ticker=ticker
+        )
 
-                # Success - break retry loop
-                break
+        generation_time_ms = int((time.time() - start_time) * 1000)
 
-            except Exception as e:
-                error_str = str(e)
-
-                # Check for retryable errors (quota, rate limit, service unavailable)
-                is_retryable = (
-                    'ResourceExhausted' in error_str or
-                    'quota' in error_str.lower() or
-                    '429' in error_str or
-                    'ServiceUnavailable' in error_str or
-                    '503' in error_str or
-                    'DeadlineExceeded' in error_str or
-                    'timeout' in error_str.lower()
-                )
-
-                if is_retryable and attempt < max_retries:
-                    wait_time = 2 ** attempt  # 1s, 2s, 4s
-                    LOG.warning(f"[{ticker}] ⚠️ Gemini error (attempt {attempt + 1}/{max_retries + 1}): {error_str[:200]}")
-                    LOG.warning(f"[{ticker}] 🔄 Retrying in {wait_time}s...")
-                    time.sleep(wait_time)
-                    continue
-                else:
-                    # Non-retryable error or max retries reached
-                    LOG.error(f"[{ticker}] ❌ Gemini 2.5 Pro Phase 2 failed after {attempt + 1} attempts: {error_str}")
-                    return None
-
-        # Check if we got a response
         if response is None:
-            LOG.error(f"[{ticker}] ❌ No response from Gemini after {max_retries + 1} attempts")
+            LOG.error(f"[{ticker}] ❌ Phase 2: No response from Gemini after retries")
             return None
 
-        # Extract text from response
-        response_text = response.text
+        # Extract text (filters out thought parts)
+        response_text = extract_response_text(response)
 
-        # Log Gemini response metadata for debugging
+        # Log Gemini response metadata for debugging (safety filters, finish reason)
         if hasattr(response, 'candidates') and response.candidates:
             candidate = response.candidates[0]
 
@@ -645,7 +637,7 @@ Downstream Customers: {entity_refs['downstream']}
                     LOG.error(f"[{ticker}] 🚨 Gemini safety filter triggered: {safety_concerns}")
 
         if not response_text or len(response_text.strip()) < 10:
-            LOG.error(f"[{ticker}] ❌ Gemini returned empty Phase 2 response")
+            LOG.error(f"[{ticker}] ❌ Phase 2: Gemini returned empty response")
             return None
 
         # Parse JSON from response using unified parser
@@ -662,7 +654,7 @@ Downstream Customers: {entity_refs['downstream']}
                 LOG.error(f"[{ticker}]   Response length: {len(response_text):,} chars")
                 LOG.error(f"[{ticker}]   Filing sources: {filing_sources}")
             else:
-                LOG.error(f"[{ticker}] ❌ Failed to extract Phase 2 JSON from Gemini response")
+                LOG.error(f"[{ticker}] ❌ Phase 2: Failed to extract JSON from Gemini response")
                 LOG.error(f"[{ticker}]   Response looks structurally ok, but not valid JSON")
                 LOG.error(f"[{ticker}]   Response length: {len(response_text):,} chars")
 
@@ -691,9 +683,8 @@ Downstream Customers: {entity_refs['downstream']}
 
             return None
 
-        # Extract token usage from Gemini response
-        prompt_tokens = response.usage_metadata.prompt_token_count if hasattr(response, 'usage_metadata') else 0
-        completion_tokens = response.usage_metadata.candidates_token_count if hasattr(response, 'usage_metadata') else 0
+        # Extract token usage including thinking and cache tokens
+        usage = extract_usage_metadata(response)
 
         # Handle different possible structures from Gemini (same as Claude)
         enrichments = {}
@@ -734,13 +725,23 @@ Downstream Customers: {entity_refs['downstream']}
                     if empty_fields:
                         LOG.info(f"      ✗ Empty/None: {', '.join(empty_fields)}")
 
-        LOG.info(f"✅ [{ticker}] Phase 2 Gemini enrichment generated ({len(response_text)} chars, {len(enrichments)} bullets enriched, {prompt_tokens} prompt tokens, {completion_tokens} completion tokens, {generation_time_ms}ms)")
+        # Calculate cost
+        cost = calculate_flash_3_cost(usage)
+
+        LOG.info(
+            f"✅ [{ticker}] Phase 2 Gemini 3.0 success: "
+            f"{usage['prompt_tokens']} prompt ({usage['cached_tokens']} cached), "
+            f"{usage['thought_tokens']} thought, {usage['output_tokens']} output, "
+            f"{len(enrichments)} bullets, {generation_time_ms}ms, ${cost:.4f}"
+        )
 
         return {
             "enrichments": enrichments,
-            "ai_model": "gemini-2.5-pro",
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
+            "ai_model": "gemini-3-flash-preview",
+            "prompt_tokens": usage['prompt_tokens'],
+            "completion_tokens": usage['output_tokens'],
+            "thought_tokens": usage['thought_tokens'],
+            "cached_tokens": usage['cached_tokens'],
             "generation_time_ms": generation_time_ms
         }
 
@@ -1008,10 +1009,10 @@ def generate_executive_summary_phase2(
     gemini_api_key: str  # Required parameter
 ) -> Optional[Dict]:
     """
-    Generate Phase 2 enrichments with Gemini 2.5 Pro (primary) and Claude fallback.
+    Generate Phase 2 enrichments with Gemini 3.0 Flash Preview (primary) and Claude fallback.
 
     This is the main entry point for Phase 2 enrichment. It attempts Gemini first
-    for cost savings (60% cheaper), then falls back to Claude if Gemini fails.
+    for cost savings, then falls back to Claude if Gemini fails.
 
     Args:
         ticker: Stock ticker symbol
@@ -1025,9 +1026,11 @@ def generate_executive_summary_phase2(
     Returns:
         dict with:
             enrichments: dict keyed by bullet_id with impact, sentiment, reason, context
-            ai_model: "gemini-2.5-pro" or "claude-sonnet-4-5-20250929"
+            ai_model: "gemini-3-flash-preview" or "claude-sonnet-4-5-20250929"
             prompt_tokens: int
             completion_tokens: int
+            thought_tokens: int (Gemini 3.0 only)
+            cached_tokens: int (Gemini 3.0 only)
             generation_time_ms: int
         Or None if both providers failed
     """
@@ -1053,9 +1056,9 @@ def generate_executive_summary_phase2(
             "generation_time_ms": 0
         }
 
-    # Try Gemini 2.5 Pro first (primary)
+    # Try Gemini 3.0 Flash Preview first (primary)
     if gemini_api_key:
-        LOG.info(f"[{ticker}] Phase 2: Attempting Gemini 2.5 Pro (primary)")
+        LOG.info(f"[{ticker}] Phase 2: Attempting Gemini 3.0 Flash Preview (primary)")
         gemini_result = _generate_phase2_gemini(
             ticker=ticker,
             phase1_json=phase1_json,
@@ -1066,10 +1069,10 @@ def generate_executive_summary_phase2(
         )
 
         if gemini_result and gemini_result.get("enrichments"):
-            LOG.info(f"[{ticker}] ✅ Phase 2: Gemini 2.5 Pro succeeded")
+            LOG.info(f"[{ticker}] ✅ Phase 2: Gemini 3.0 Flash Preview succeeded")
             return gemini_result
         else:
-            LOG.warning(f"[{ticker}] ⚠️ Phase 2: Gemini 2.5 Pro failed, falling back to Claude Sonnet")
+            LOG.warning(f"[{ticker}] ⚠️ Phase 2: Gemini 3.0 Flash Preview failed, falling back to Claude Sonnet")
     else:
         LOG.warning(f"[{ticker}] ⚠️ No Gemini API key provided, using Claude Sonnet only")
 
