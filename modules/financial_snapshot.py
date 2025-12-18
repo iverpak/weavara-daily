@@ -13,11 +13,37 @@ Usage:
 
 import logging
 import requests
+import numpy as np
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple, Any
 import pandas as pd
 
 LOG = logging.getLogger(__name__)
+
+
+def _convert_to_native(value):
+    """
+    Convert numpy types to native Python types for JSON serialization.
+    FastAPI's jsonable_encoder fails on numpy.int64, numpy.float64, etc.
+    """
+    if value is None:
+        return None
+    if isinstance(value, (np.integer,)):
+        return int(value)
+    if isinstance(value, (np.floating,)):
+        if np.isnan(value):
+            return None
+        return float(value)
+    if isinstance(value, np.ndarray):
+        return value.tolist()
+    if pd.isna(value):
+        return None
+    return value
+
+
+def _convert_list(values: List) -> List:
+    """Convert all values in a list to native Python types"""
+    return [_convert_to_native(v) for v in values]
 
 # ------------------------------------------------------------------------------
 # FMP CLIENT
@@ -237,12 +263,12 @@ class FinancialSnapshotAnalyzer:
             quarterly_labels, quote
         )
 
-        # Combine into final structure
+        # Combine into final structure (convert numpy types to native Python for JSON)
         metrics = {}
         for metric_name in annual_data.keys():
             metrics[metric_name] = {
-                'annual': annual_data[metric_name],
-                'quarterly': quarterly_data.get(metric_name, [None] * len(quarterly_labels))
+                'annual': _convert_list(annual_data[metric_name]),
+                'quarterly': _convert_list(quarterly_data.get(metric_name, [None] * len(quarterly_labels)))
             }
 
         return {
@@ -250,8 +276,8 @@ class FinancialSnapshotAnalyzer:
             'company_name': company_name,
             'sector': sector,
             'industry': industry,
-            'current_price': current_price,
-            'market_cap': market_cap,
+            'current_price': _convert_to_native(current_price),
+            'market_cap': _convert_to_native(market_cap),
             'ebitda_method': ebitda_method,
             'generated_at': datetime.now().isoformat(),
             'columns': {
