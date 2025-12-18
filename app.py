@@ -973,6 +973,8 @@ SPAM_DOMAINS = {
     "gobankingrates.com", "www.gobankingrates.com",  # Personal finance listicles, retail-oriented
     # Tech news aggregator (Dec 2025)
     "ts2.tech", "www.ts2.tech",  # Low-quality tech aggregator
+    # Quant data aggregators (Dec 2025)
+    "quiverquant.com", "www.quiverquant.com",  # Retail-oriented quant data, automated content
 }
 
 QUALITY_DOMAINS = {
