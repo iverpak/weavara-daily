@@ -352,7 +352,15 @@ GEMINI_PRO_PRICING = {
     "input": 1.25,           # $1.25 per 1M input tokens
     "output": 10.00,         # $10.00 per 1M output tokens
 }
-# NOTE: Gemini does not support prompt caching (Claude-only feature)
+
+# Gemini 3.0 Flash Preview Pricing (per 1M tokens as of December 2025)
+# Supports implicit caching and thinking tokens
+GEMINI_FLASH_3_PRICING = {
+    "input": 0.50,           # $0.50 per 1M input tokens
+    "cache_read": 0.05,      # $0.05 per 1M cached tokens (90% discount)
+    "output": 3.00,          # $3.00 per 1M output tokens (includes thinking)
+}
+# NOTE: Gemini 3.0 supports implicit caching after 2,048 token prefix match
 
 # Thread-local storage for cost tracking (one tracker per ticker thread)
 _cost_tracker = threading.local()
@@ -478,8 +486,11 @@ def calculate_gemini_api_cost(usage: dict, function_name: str, model: str = "fla
         usage: Usage dict from Gemini API response with keys:
                - input_tokens: prompt token count
                - output_tokens: candidates token count
+               For Flash 3.0, also supports:
+               - thought_tokens: reasoning tokens (billed as output)
+               - cached_tokens: tokens served from cache (90% discount)
         function_name: Name of the function (for categorization)
-        model: "flash" or "pro" (default: "flash")
+        model: "flash", "pro", or "flash3" (default: "flash")
         model_name: Full model name for tracking (e.g., "gemini-2.5-pro", optional)
 
     Returns:
@@ -487,18 +498,31 @@ def calculate_gemini_api_cost(usage: dict, function_name: str, model: str = "fla
     """
     input_tokens = usage.get("input_tokens", 0)
     output_tokens = usage.get("output_tokens", 0)
+    thought_tokens = usage.get("thought_tokens", 0)  # Flash 3.0 only
+    cached_tokens = usage.get("cached_tokens", 0)    # Flash 3.0 only
 
     # Determine pricing based on model
-    if "pro" in model.lower():
+    if "flash3" in model.lower() or "3-flash" in model.lower() or "gemini-3" in (model_name or "").lower():
+        # Gemini 3.0 Flash Preview pricing with caching and thinking
+        pricing = GEMINI_FLASH_3_PRICING
+        uncached_input = input_tokens - cached_tokens
+        input_cost = (uncached_input / 1_000_000) * pricing["input"]
+        cache_cost = (cached_tokens / 1_000_000) * pricing["cache_read"]
+        # Output includes thinking tokens
+        output_cost = ((output_tokens + thought_tokens) / 1_000_000) * pricing["output"]
+        call_cost = input_cost + cache_cost + output_cost
+    elif "pro" in model.lower():
         pricing = GEMINI_PRO_PRICING
+        input_cost = (input_tokens / 1_000_000) * pricing["input"]
+        output_cost = (output_tokens / 1_000_000) * pricing["output"]
+        cache_cost = 0
+        call_cost = input_cost + output_cost
     else:
         pricing = GEMINI_FLASH_PRICING
-
-    # Calculate costs (divide by 1M to get actual cost)
-    input_cost = (input_tokens / 1_000_000) * pricing["input"]
-    output_cost = (output_tokens / 1_000_000) * pricing["output"]
-
-    call_cost = input_cost + output_cost
+        input_cost = (input_tokens / 1_000_000) * pricing["input"]
+        output_cost = (output_tokens / 1_000_000) * pricing["output"]
+        cache_cost = 0
+        call_cost = input_cost + output_cost
 
     # Track in thread-local tracker
     tracker = get_cost_tracker()
@@ -518,10 +542,14 @@ def calculate_gemini_api_cost(usage: dict, function_name: str, model: str = "fla
         if "tokens" not in tracker["by_function"][function_name]:
             tracker["by_function"][function_name]["tokens"] = {
                 "input": 0,
-                "output": 0
+                "output": 0,
+                "thought": 0,
+                "cached": 0
             }
         tracker["by_function"][function_name]["tokens"]["input"] += input_tokens
         tracker["by_function"][function_name]["tokens"]["output"] += output_tokens
+        tracker["by_function"][function_name]["tokens"]["thought"] += thought_tokens
+        tracker["by_function"][function_name]["tokens"]["cached"] += cached_tokens
 
         # Store model name for Phase 1/2/3 (only if provided)
         if model_name:
@@ -531,9 +559,12 @@ def calculate_gemini_api_cost(usage: dict, function_name: str, model: str = "fla
         "call_cost": round(call_cost, 6),
         "input_cost": round(input_cost, 6),
         "output_cost": round(output_cost, 6),
+        "cache_cost": round(cache_cost, 6) if cache_cost else 0,
         "tokens": {
             "input": input_tokens,
-            "output": output_tokens
+            "output": output_tokens,
+            "thought": thought_tokens,
+            "cached": cached_tokens
         }
     }
 
@@ -12865,15 +12896,20 @@ async def generate_ai_final_summaries(articles_by_ticker: Dict[str, Dict[str, Li
                             phase1_5_model_used = filter_result.get("model_used", "")
                             phase1_5_prompt_tokens = filter_result.get("prompt_tokens", 0)
                             phase1_5_completion_tokens = filter_result.get("completion_tokens", 0)
+                            phase1_5_thought_tokens = filter_result.get("thought_tokens", 0)  # Flash 3.0
+                            phase1_5_cached_tokens = filter_result.get("cached_tokens", 0)    # Flash 3.0
                             phase1_5_generation_time_ms = filter_result.get("generation_time_ms", 0)
 
                             phase1_5_usage = {
                                 "input_tokens": phase1_5_prompt_tokens,
-                                "output_tokens": phase1_5_completion_tokens
+                                "output_tokens": phase1_5_completion_tokens,
+                                "thought_tokens": phase1_5_thought_tokens,
+                                "cached_tokens": phase1_5_cached_tokens
                             }
 
                             if "gemini" in phase1_5_model_used.lower():
-                                calculate_gemini_api_cost(phase1_5_usage, "executive_summary_phase1_5", model="flash", model_name=phase1_5_model_used)
+                                # Use flash3 pricing for Gemini 3.0 Flash Preview
+                                calculate_gemini_api_cost(phase1_5_usage, "executive_summary_phase1_5", model="flash3", model_name=phase1_5_model_used)
                             elif "claude" in phase1_5_model_used.lower():
                                 calculate_claude_api_cost(phase1_5_usage, "executive_summary_phase1_5", model_name=phase1_5_model_used)
 
@@ -17783,14 +17819,19 @@ async def process_regenerate_email_phase(job: dict):
                     phase1_5_model_used = filter_result.get("model_used", "")
                     phase1_5_prompt_tokens = filter_result.get("prompt_tokens", 0)
                     phase1_5_completion_tokens = filter_result.get("completion_tokens", 0)
+                    phase1_5_thought_tokens = filter_result.get("thought_tokens", 0)  # Flash 3.0
+                    phase1_5_cached_tokens = filter_result.get("cached_tokens", 0)    # Flash 3.0
 
                     phase1_5_usage = {
                         "input_tokens": phase1_5_prompt_tokens,
-                        "output_tokens": phase1_5_completion_tokens
+                        "output_tokens": phase1_5_completion_tokens,
+                        "thought_tokens": phase1_5_thought_tokens,
+                        "cached_tokens": phase1_5_cached_tokens
                     }
 
                     if "gemini" in phase1_5_model_used.lower():
-                        calculate_gemini_api_cost(phase1_5_usage, "executive_summary_phase1_5", model="flash", model_name=phase1_5_model_used)
+                        # Use flash3 pricing for Gemini 3.0 Flash Preview
+                        calculate_gemini_api_cost(phase1_5_usage, "executive_summary_phase1_5", model="flash3", model_name=phase1_5_model_used)
                     elif "claude" in phase1_5_model_used.lower():
                         calculate_claude_api_cost(phase1_5_usage, "executive_summary_phase1_5", model_name=phase1_5_model_used)
 

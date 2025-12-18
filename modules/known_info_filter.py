@@ -20,6 +20,13 @@ Knowledge Base: Transcript + 8-Ks only
    - <2/3 KNOWN (includes 1/2, 1/3) → KEEP original
    - 100% NEW → KEEP original
 
+Migration Notes (Dec 2025):
+- Upgraded from Gemini 2.5 Flash to Gemini 3.0 Flash Preview
+- New SDK: google-genai (not google-generativeai)
+- Thinking Level: HIGH for best accuracy on filing analysis
+- Temperature: 1.0 (required) with seed=42 for determinism
+- Implicit caching: Automatic after 2,048 token prefix match
+
 STATUS: PRODUCTION - Filters Phase 1 JSON before Phase 2 enrichment.
 """
 
@@ -1483,7 +1490,7 @@ def _fetch_filtered_8k_filings(ticker: str, db_func, last_transcript_date=None) 
 
 
 # =============================================================================
-# GEMINI IMPLEMENTATION
+# GEMINI IMPLEMENTATION (Gemini 3.0 Flash Preview - Dec 2025)
 # =============================================================================
 
 def _filter_known_info_gemini(
@@ -1494,7 +1501,13 @@ def _filter_known_info_gemini(
     eight_k_filings: List[Dict] = None
 ) -> Optional[Dict]:
     """
-    Filter known information using Gemini 2.5 Flash.
+    Filter known information using Gemini 3.0 Flash Preview.
+
+    Migration Notes (Dec 2025):
+    - Upgraded from google-generativeai (legacy) to google-genai (new SDK)
+    - Model: gemini-3-flash-preview (smarter than 2.5 Pro, 3x faster)
+    - Temperature: 1.0 (required for reasoning) with seed=42 for determinism
+    - Thinking Level: HIGH (best accuracy for filing analysis)
 
     Args:
         ticker: Stock ticker
@@ -1506,28 +1519,46 @@ def _filter_known_info_gemini(
     Returns:
         Filter result dict or None if failed
     """
-    import google.generativeai as genai
+    from google.genai import types
+    from modules.gemini_3_utils import (
+        create_gemini_3_client,
+        call_with_retry,
+        extract_usage_metadata,
+        extract_response_text,
+        build_thinking_config,
+        calculate_flash_3_cost
+    )
 
     try:
-        genai.configure(api_key=gemini_api_key)
-
         # Build user content (now includes 8-K filings and returns filing_lookup)
         user_content, filing_lookup = _build_filter_user_content(ticker, phase1_json, filings, eight_k_filings)
-
-        # Concatenate system prompt + user content (matches working pattern in article_summaries.py, triage.py)
-        # NOTE: Using system_instruction parameter caused empty responses with finish_reason=1
-        full_prompt = KNOWN_INFO_FILTER_PROMPT + "\n\n" + user_content
 
         # Log sizes
         system_tokens_est = len(KNOWN_INFO_FILTER_PROMPT) // 4
         user_tokens_est = len(user_content) // 4
-        total_tokens_est = len(full_prompt) // 4
+        total_tokens_est = (len(KNOWN_INFO_FILTER_PROMPT) + len(user_content)) // 4
         LOG.info(f"[{ticker}] Phase 1.5 Gemini prompt: system=~{system_tokens_est} tokens, user=~{user_tokens_est} tokens, total=~{total_tokens_est} tokens")
 
-        # Create model WITHOUT system_instruction (use concatenated prompt instead)
-        model = genai.GenerativeModel('gemini-2.5-flash')
+        # Create client with 120s timeout for HIGH thinking
+        client = create_gemini_3_client(gemini_api_key, timeout=120.0)
 
-        LOG.info(f"[{ticker}] Phase 1.5: Calling Gemini 2.5 Flash for known info filter")
+        # Build contents with system prompt first (enables implicit caching)
+        contents = [
+            types.Part.from_text(text=KNOWN_INFO_FILTER_PROMPT),
+            types.Part.from_text(text=user_content)
+        ]
+
+        # Configure for HIGH thinking with deterministic output
+        config = build_thinking_config(
+            thinking_level="HIGH",
+            include_thoughts=False,
+            temperature=1.0,
+            max_output_tokens=60000,
+            seed=42,
+            response_mime_type="application/json"
+        )
+
+        LOG.info(f"[{ticker}] Phase 1.5: Calling Gemini 3.0 Flash Preview (thinking=HIGH)")
 
         # Import JSON parser
         from modules.json_utils import extract_json_from_claude_response
@@ -1536,52 +1567,26 @@ def _filter_known_info_gemini(
         max_content_retries = 1
 
         for content_attempt in range(max_content_retries + 1):
-            # Inner loop: Retry on API errors (rate limits, timeouts, etc.)
-            max_api_retries = 2
-            response = None
-            generation_time_ms = 0
+            start_time = time.time()
 
-            for api_attempt in range(max_api_retries + 1):
-                try:
-                    start_time = time.time()
-                    response = model.generate_content(
-                        full_prompt,
-                        generation_config={
-                            'temperature': 0.0,
-                            'max_output_tokens': 60000
-                        }
-                    )
-                    generation_time_ms = int((time.time() - start_time) * 1000)
-                    break
+            # Call with smart retry (handles 429 vs 503 differently)
+            response = call_with_retry(
+                client=client,
+                model="gemini-3-flash-preview",
+                contents=contents,
+                config=config,
+                max_retries=2,
+                ticker=ticker
+            )
 
-                except Exception as e:
-                    error_str = str(e)
-                    is_retryable = (
-                        'ResourceExhausted' in error_str or
-                        'quota' in error_str.lower() or
-                        '429' in error_str or
-                        'ServiceUnavailable' in error_str or
-                        '503' in error_str or
-                        'DeadlineExceeded' in error_str or
-                        'timeout' in error_str.lower()
-                    )
-
-                    if is_retryable and api_attempt < max_api_retries:
-                        wait_time = 2 ** api_attempt
-                        LOG.warning(f"[{ticker}] Phase 1.5 Gemini API error (attempt {api_attempt + 1}): {error_str[:200]}")
-                        LOG.warning(f"[{ticker}] Retrying in {wait_time}s...")
-                        time.sleep(wait_time)
-                        continue
-                    else:
-                        LOG.error(f"[{ticker}] Phase 1.5 Gemini failed after {api_attempt + 1} API attempts: {error_str}")
-                        return None
+            generation_time_ms = int((time.time() - start_time) * 1000)
 
             if response is None:
-                LOG.error(f"[{ticker}] Phase 1.5: No response from Gemini")
+                LOG.error(f"[{ticker}] Phase 1.5: No response from Gemini after retries")
                 return None
 
-            # Extract text
-            response_text = response.text
+            # Extract text (filters out thought parts)
+            response_text = extract_response_text(response)
             if not response_text or len(response_text.strip()) < 10:
                 LOG.error(f"[{ticker}] Phase 1.5: Gemini returned empty response")
                 return None
@@ -1590,18 +1595,29 @@ def _filter_known_info_gemini(
             json_output = extract_json_from_claude_response(response_text, ticker)
 
             if json_output:
-                # Success! Get token counts and return
-                prompt_tokens = response.usage_metadata.prompt_token_count if hasattr(response, 'usage_metadata') else 0
-                completion_tokens = response.usage_metadata.candidates_token_count if hasattr(response, 'usage_metadata') else 0
+                # Success! Get token counts including thinking tokens
+                usage = extract_usage_metadata(response)
 
-                LOG.info(f"[{ticker}] Phase 1.5 Gemini success: {prompt_tokens} prompt, {completion_tokens} completion, {generation_time_ms}ms")
+                LOG.info(
+                    f"[{ticker}] Phase 1.5 Gemini 3.0 success: "
+                    f"{usage['prompt_tokens']} prompt ({usage['cached_tokens']} cached), "
+                    f"{usage['thought_tokens']} thought, {usage['output_tokens']} output, "
+                    f"{generation_time_ms}ms"
+                )
+
+                # Calculate cost
+                cost = calculate_flash_3_cost(usage)
+                LOG.info(f"[{ticker}] Phase 1.5 cost: ${cost:.4f}")
 
                 return {
                     "json_output": json_output,
-                    "model_used": "gemini-2.5-flash",
-                    "prompt_tokens": prompt_tokens,
-                    "completion_tokens": completion_tokens,
+                    "model_used": "gemini-3-flash-preview",
+                    "prompt_tokens": usage['prompt_tokens'],
+                    "completion_tokens": usage['output_tokens'],
+                    "thought_tokens": usage['thought_tokens'],
+                    "cached_tokens": usage['cached_tokens'],
                     "generation_time_ms": generation_time_ms,
+                    "cost": cost,
                     "filing_lookup": filing_lookup
                 }
 
