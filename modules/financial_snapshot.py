@@ -168,6 +168,25 @@ class FinancialSnapshotFetcher:
 
         return data[0] if isinstance(data, list) else data
 
+    def fetch_shares_float(self, ticker: str) -> Optional[Dict]:
+        """
+        Fetch current shares outstanding from v4 shares_float endpoint.
+        Returns None if endpoint fails (graceful degradation).
+        """
+        try:
+            url = "https://financialmodelingprep.com/api/v4/shares_float"
+            params = {'symbol': ticker.upper(), 'apikey': self.api_key}
+            response = requests.get(url, params=params, timeout=self.TIMEOUT)
+            response.raise_for_status()
+            data = response.json()
+
+            if data and isinstance(data, list) and len(data) > 0:
+                return data[0]
+            return None
+        except Exception as e:
+            LOG.warning(f"[SNAPSHOT] Could not fetch shares float for {ticker}: {e}")
+            return None
+
 
 # ------------------------------------------------------------------------------
 # FINANCIAL ANALYZER
@@ -220,12 +239,20 @@ class FinancialSnapshotAnalyzer:
         # Fetch company info
         profile = self.fetcher.fetch_profile(ticker)
         quote = self.fetcher.fetch_quote(ticker)
+        shares_float = self.fetcher.fetch_shares_float(ticker)
 
         company_name = profile.get('companyName', ticker)
         sector = profile.get('sector', 'N/A')
         industry = profile.get('industry', 'N/A')
         current_price = quote.get('price', 0)
         market_cap = quote.get('marketCap', 0)
+
+        # Current shares outstanding (from shares_float endpoint)
+        shares_outstanding = None
+        float_shares = None
+        if shares_float:
+            shares_outstanding = shares_float.get('outstandingShares')
+            float_shares = shares_float.get('floatShares')
 
         # Get time periods
         annual_years = self._get_annual_years()
@@ -278,6 +305,8 @@ class FinancialSnapshotAnalyzer:
             'industry': industry,
             'current_price': _convert_to_native(current_price),
             'market_cap': _convert_to_native(market_cap),
+            'shares_outstanding': _convert_to_native(shares_outstanding),
+            'float_shares': _convert_to_native(float_shares),
             'ebitda_method': ebitda_method,
             'generated_at': datetime.now().isoformat(),
             'columns': {
@@ -419,6 +448,7 @@ class FinancialSnapshotAnalyzer:
             'Revenue Y/Y': [],
             'EBITDA Y/Y': [],
             'EPS': [],
+            'Shares Outstanding': [],
             'OCF': [],
             'CapEx': [],
             'Free Cash Flow': [],
@@ -482,6 +512,10 @@ class FinancialSnapshotAnalyzer:
             # EPS (Diluted)
             eps = self._get_metric_from_row(income_row, ['epsdiluted', 'eps'])
             result['EPS'].append(eps)
+
+            # Shares Outstanding (Diluted) - in millions
+            shares = self._get_metric_from_row(income_row, ['weightedAverageShsOutDil', 'weightedAverageShsOut'])
+            result['Shares Outstanding'].append(shares / 1_000_000 if shares else None)
 
             # Cash flow metrics
             if cashflow_row is not None:
@@ -596,6 +630,7 @@ class FinancialSnapshotAnalyzer:
             'Revenue Y/Y': [],
             'EBITDA Y/Y': [],
             'EPS': [],
+            'Shares Outstanding': [],
             'OCF': [],
             'CapEx': [],
             'Free Cash Flow': [],
@@ -664,6 +699,10 @@ class FinancialSnapshotAnalyzer:
             # EPS (Diluted)
             eps = self._get_metric_from_row(income_row, ['epsdiluted', 'eps'])
             result['EPS'].append(eps)
+
+            # Shares Outstanding (Diluted) - in millions
+            shares = self._get_metric_from_row(income_row, ['weightedAverageShsOutDil', 'weightedAverageShsOut'])
+            result['Shares Outstanding'].append(shares / 1_000_000 if shares else None)
 
             # Cash flow metrics
             if cashflow_row is not None:

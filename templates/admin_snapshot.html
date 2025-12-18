@@ -394,6 +394,10 @@
                         <span class="meta-label">Market Cap:</span>
                         <span class="meta-value" id="company-mcap">$2,500B</span>
                     </div>
+                    <div class="meta-item">
+                        <span class="meta-label">Shares Out:</span>
+                        <span class="meta-value" id="company-shares">15.0B</span>
+                    </div>
                 </div>
             </div>
 
@@ -444,6 +448,7 @@
             { key: 'Revenue Y/Y', label: 'Revenue Y/Y', format: 'percent', section: 'income' },
             { key: 'EBITDA Y/Y', label: 'EBITDA Y/Y', format: 'percent', section: 'income' },
             { key: 'EPS', label: 'EPS (Diluted)', format: 'eps', section: 'income' },
+            { key: 'Shares Outstanding', label: 'Shares Out (Diluted)', format: 'shares', section: 'income' },
             // Cash Flow section
             { key: 'OCF', label: 'Operating Cash Flow', format: 'dollar', section: 'cashflow' },
             { key: 'CapEx', label: 'CapEx', format: 'dollar', section: 'cashflow' },
@@ -506,6 +511,14 @@
                         text = `$${value.toFixed(2)}`;
                     }
                     break;
+                case 'shares':
+                    // Value is in millions, format with M suffix
+                    if (value >= 1000) {
+                        text = `${(value / 1000).toFixed(1)}B`;
+                    } else {
+                        text = `${value.toFixed(0)}M`;
+                    }
+                    break;
                 default:
                     text = value.toString();
             }
@@ -523,6 +536,16 @@
                 return `$${(value / 1e6).toFixed(0)}M`;
             }
             return `$${value.toLocaleString()}`;
+        }
+
+        function formatSharesOutstanding(value) {
+            if (!value) return 'N/A';
+            if (value >= 1e9) {
+                return `${(value / 1e9).toFixed(2)}B`;
+            } else if (value >= 1e6) {
+                return `${(value / 1e6).toFixed(0)}M`;
+            }
+            return value.toLocaleString();
         }
 
         function buildTable(data) {
@@ -632,6 +655,7 @@
                 document.getElementById('company-price').textContent = result.current_price
                     ? `$${result.current_price.toFixed(2)}` : 'N/A';
                 document.getElementById('company-mcap').textContent = formatMarketCap(result.market_cap);
+                document.getElementById('company-shares').textContent = formatSharesOutstanding(result.shares_outstanding);
 
                 // Build financial table
                 buildTable(result);
