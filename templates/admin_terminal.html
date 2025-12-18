@@ -1,0 +1,494 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Research Terminal - Weavara Admin</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+            background: #f8f9fa;
+            min-height: 100vh;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%);
+            color: #ffffff;
+            padding: 24px 32px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 8px;
+        }
+
+        .header p {
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        .header .back-link {
+            display: inline-block;
+            color: #ffffff;
+            text-decoration: none;
+            margin-bottom: 12px;
+            opacity: 0.9;
+            font-size: 14px;
+        }
+
+        .header .back-link:hover {
+            opacity: 1;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 40px auto;
+            padding: 0 20px;
+        }
+
+        .card {
+            background: #ffffff;
+            padding: 24px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            margin-bottom: 24px;
+        }
+
+        .card h2 {
+            font-size: 18px;
+            font-weight: 700;
+            color: #111827;
+            margin-bottom: 16px;
+        }
+
+        .input-group {
+            margin-bottom: 16px;
+        }
+
+        label {
+            display: block;
+            font-size: 14px;
+            font-weight: 600;
+            color: #374151;
+            margin-bottom: 8px;
+        }
+
+        select, textarea {
+            width: 100%;
+            padding: 12px;
+            font-size: 14px;
+            border: 2px solid #e5e7eb;
+            border-radius: 8px;
+            transition: border-color 0.2s;
+            font-family: inherit;
+        }
+
+        select:focus, textarea:focus {
+            outline: none;
+            border-color: #1e40af;
+        }
+
+        textarea {
+            resize: vertical;
+            min-height: 80px;
+        }
+
+        button {
+            background: #1e40af;
+            color: #ffffff;
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        button:hover {
+            background: #1e3a8a;
+        }
+
+        button:disabled {
+            background: #9ca3af;
+            cursor: not-allowed;
+        }
+
+        .documents-box {
+            background: #f0f7ff;
+            padding: 16px;
+            border-radius: 8px;
+            border-left: 4px solid #6366f1;
+            margin-top: 16px;
+        }
+
+        .documents-box h3 {
+            font-size: 14px;
+            font-weight: 700;
+            color: #1e40af;
+            margin-bottom: 12px;
+        }
+
+        .documents-list {
+            font-size: 13px;
+            color: #374151;
+            line-height: 1.8;
+        }
+
+        .documents-list .doc-type {
+            font-weight: 600;
+            color: #111827;
+        }
+
+        .documents-list .doc-meta {
+            color: #6b7280;
+            font-size: 12px;
+        }
+
+        .no-docs {
+            color: #6b7280;
+            font-style: italic;
+        }
+
+        .answer-box {
+            background: #ffffff;
+            padding: 24px;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+            display: none;
+        }
+
+        .answer-box.visible {
+            display: block;
+        }
+
+        .answer-box h2 {
+            font-size: 18px;
+            font-weight: 700;
+            color: #111827;
+            margin-bottom: 16px;
+        }
+
+        .answer-content {
+            font-size: 14px;
+            line-height: 1.7;
+            color: #374151;
+        }
+
+        .answer-content h1, .answer-content h2, .answer-content h3 {
+            color: #111827;
+            margin: 16px 0 8px 0;
+        }
+
+        .answer-content h1 { font-size: 18px; }
+        .answer-content h2 { font-size: 16px; }
+        .answer-content h3 { font-size: 15px; }
+
+        .answer-content p {
+            margin-bottom: 12px;
+        }
+
+        .answer-content ul, .answer-content ol {
+            margin: 12px 0;
+            padding-left: 24px;
+        }
+
+        .answer-content li {
+            margin-bottom: 6px;
+        }
+
+        .answer-content strong {
+            color: #111827;
+        }
+
+        .answer-content em {
+            color: #6b7280;
+        }
+
+        .answer-content code {
+            background: #f3f4f6;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 13px;
+        }
+
+        .answer-content blockquote {
+            border-left: 3px solid #1e40af;
+            padding-left: 16px;
+            margin: 12px 0;
+            color: #4b5563;
+            font-style: italic;
+        }
+
+        .token-stats {
+            margin-top: 20px;
+            padding-top: 16px;
+            border-top: 1px solid #e5e7eb;
+            font-size: 13px;
+            color: #6b7280;
+        }
+
+        .loading {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid #1e40af;
+            border-top-color: transparent;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .error-message {
+            background: #fee2e2;
+            color: #991b1b;
+            padding: 12px 16px;
+            border-radius: 8px;
+            border: 1px solid #ef4444;
+            margin-top: 16px;
+            font-size: 14px;
+        }
+
+        .footer {
+            text-align: center;
+            padding: 40px 20px;
+            color: #6b7280;
+            font-size: 13px;
+        }
+    </style>
+</head>
+<body>
+    {% if staging_mode %}
+    <div style="background: #dc2626; color: white; padding: 10px 20px; text-align: center; font-weight: 600; font-size: 14px; letter-spacing: 0.5px;">
+        ⚠️ STAGING
+    </div>
+    {% endif %}
+    <div class="header">
+        <a href="/admin?token={{ token }}" class="back-link">← Back to Dashboard</a>
+        <h1>🔬 Research Terminal</h1>
+        <p>Ask questions about your saved research documents using AI</p>
+    </div>
+
+    <div class="container">
+        <!-- Ticker Selection -->
+        <div class="card">
+            <h2>Select Ticker</h2>
+            <div class="input-group">
+                <label for="ticker-select">Ticker</label>
+                <select id="ticker-select">
+                    <option value="">Loading tickers...</option>
+                </select>
+            </div>
+
+            <div id="documents-container" style="display: none;">
+                <div class="documents-box">
+                    <h3>📁 Available Documents</h3>
+                    <div id="documents-list" class="documents-list">
+                        <!-- Documents will be populated here -->
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Question Input -->
+        <div class="card">
+            <h2>Ask a Question</h2>
+            <div class="input-group">
+                <label for="question-input">Your Question</label>
+                <textarea id="question-input" placeholder="e.g., What are the top 3 risk factors mentioned in the 10-K?"></textarea>
+            </div>
+            <button id="ask-btn" disabled>Ask Question</button>
+            <div id="error-container"></div>
+        </div>
+
+        <!-- Answer Display -->
+        <div id="answer-box" class="answer-box">
+            <h2>Answer</h2>
+            <div id="answer-content" class="answer-content">
+                <!-- Answer will be populated here -->
+            </div>
+            <div id="token-stats" class="token-stats">
+                <!-- Token stats will be populated here -->
+            </div>
+        </div>
+    </div>
+
+    <div class="footer">
+        <p>Weavara Research Terminal | Powered by Gemini 2.5 Flash</p>
+    </div>
+
+    <!-- Markdown Parser -->
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+    <script>
+        const token = '{{ token }}';
+        const tickerSelect = document.getElementById('ticker-select');
+        const documentsContainer = document.getElementById('documents-container');
+        const documentsList = document.getElementById('documents-list');
+        const questionInput = document.getElementById('question-input');
+        const askBtn = document.getElementById('ask-btn');
+        const answerBox = document.getElementById('answer-box');
+        const answerContent = document.getElementById('answer-content');
+        const tokenStats = document.getElementById('token-stats');
+        const errorContainer = document.getElementById('error-container');
+
+        let tickerDocuments = {}; // Cache documents per ticker
+
+        // Load tickers on page load
+        async function loadTickers() {
+            try {
+                const response = await fetch(`/api/admin/research-terminal-tickers?token=${token}`);
+                const data = await response.json();
+
+                if (data.error) {
+                    tickerSelect.innerHTML = '<option value="">Error loading tickers</option>';
+                    return;
+                }
+
+                if (data.tickers.length === 0) {
+                    tickerSelect.innerHTML = '<option value="">No tickers with documents found</option>';
+                    return;
+                }
+
+                tickerSelect.innerHTML = '<option value="">Select a ticker...</option>';
+                data.tickers.forEach(ticker => {
+                    const option = document.createElement('option');
+                    option.value = ticker;
+                    option.textContent = ticker;
+                    tickerSelect.appendChild(option);
+                });
+
+                // Cache documents data
+                tickerDocuments = data.documents || {};
+            } catch (error) {
+                console.error('Failed to load tickers:', error);
+                tickerSelect.innerHTML = '<option value="">Failed to load tickers</option>';
+            }
+        }
+
+        // Display documents for selected ticker
+        function displayDocuments(ticker) {
+            if (!ticker || !tickerDocuments[ticker]) {
+                documentsContainer.style.display = 'none';
+                return;
+            }
+
+            const docs = tickerDocuments[ticker];
+            if (docs.length === 0) {
+                documentsContainer.style.display = 'none';
+                return;
+            }
+
+            let html = '';
+            docs.forEach(doc => {
+                if (doc.type === '8-K') {
+                    // Full details for 8-K
+                    const title = doc.description.length > 60
+                        ? doc.description.substring(0, 60) + '...'
+                        : doc.description;
+                    html += `<div>• <span class="doc-type">8-K:</span> ${title} <span class="doc-meta">(${doc.date}) [Items: ${doc.item_codes || 'N/A'}]</span></div>`;
+                } else {
+                    html += `<div>• <span class="doc-type">${doc.type}:</span> ${doc.description} <span class="doc-meta">(${doc.date})</span></div>`;
+                }
+            });
+
+            documentsList.innerHTML = html;
+            documentsContainer.style.display = 'block';
+        }
+
+        // Handle ticker selection
+        tickerSelect.addEventListener('change', function() {
+            const ticker = this.value;
+            displayDocuments(ticker);
+            updateAskButton();
+            // Clear previous answer
+            answerBox.classList.remove('visible');
+            errorContainer.innerHTML = '';
+        });
+
+        // Handle question input
+        questionInput.addEventListener('input', updateAskButton);
+
+        function updateAskButton() {
+            const hasTicker = tickerSelect.value !== '';
+            const hasQuestion = questionInput.value.trim() !== '';
+            askBtn.disabled = !(hasTicker && hasQuestion);
+        }
+
+        // Ask question
+        askBtn.addEventListener('click', async function() {
+            const ticker = tickerSelect.value;
+            const question = questionInput.value.trim();
+
+            if (!ticker || !question) return;
+
+            // Update UI
+            askBtn.disabled = true;
+            askBtn.innerHTML = '<span class="loading"></span> Thinking...';
+            errorContainer.innerHTML = '';
+            answerBox.classList.remove('visible');
+
+            try {
+                const response = await fetch('/api/admin/research-terminal-qa', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Admin-Token': token
+                    },
+                    body: JSON.stringify({ ticker, question })
+                });
+
+                const data = await response.json();
+
+                if (data.error) {
+                    errorContainer.innerHTML = `<div class="error-message">${data.error}</div>`;
+                    return;
+                }
+
+                // Render markdown answer
+                answerContent.innerHTML = marked.parse(data.answer);
+
+                // Display token stats
+                const costStr = data.cost ? `$${data.cost.toFixed(4)}` : 'N/A';
+                tokenStats.innerHTML = `📊 Tokens: ${data.input_tokens?.toLocaleString() || 'N/A'} in / ${data.output_tokens?.toLocaleString() || 'N/A'} out | Cost: ${costStr}`;
+
+                answerBox.classList.add('visible');
+
+            } catch (error) {
+                console.error('Failed to get answer:', error);
+                errorContainer.innerHTML = '<div class="error-message">Failed to get answer. Please try again.</div>';
+            } finally {
+                askBtn.disabled = false;
+                askBtn.textContent = 'Ask Question';
+                updateAskButton();
+            }
+        });
+
+        // Allow Enter key to submit (Shift+Enter for newline)
+        questionInput.addEventListener('keydown', function(e) {
+            if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                if (!askBtn.disabled) {
+                    askBtn.click();
+                }
+            }
+        });
+
+        // Initialize
+        loadTickers();
+    </script>
+</body>
+</html>
