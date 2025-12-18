@@ -1,0 +1,5 @@
+name,email,tickers,user_type,ticker_limit,status,created_at,terms_accepted_at,privacy_accepted_at,cancelled_at
+ILIA V,timelesstalesvisualized@gmail.com,"AAPL,AMZN,MSFT",beta,3,active,2025-12-16 19:31:12.897548+00:00,2025-12-16 19:31:12.897548+00:00,2025-12-16 19:31:12.897548+00:00,
+Weavara ADMIN,weavara.research@gmail.com,"CF,ELME,LIN,PLD",admin,,paused,2025-12-08 14:31:19.131380+00:00,2025-12-08 14:31:19.131380+00:00,2025-12-08 14:31:19.131380+00:00,
+Ilia Verpakhovski,ilia.verpakhovski@gmail.com,"CCO,CORZ,TLN",beta,3,active,2025-12-04 04:16:01.405757+00:00,2025-12-04 04:16:01.405757+00:00,2025-12-04 04:16:01.405757+00:00,
+Ilia Verpakhovski ADMIN,stockdigest.research@gmail.com,"AAPL,AMZN,BANF,CORZ,INVH,JPM,META,MSFT,NVDA,PLD,SHEN,SMCI,TLN,TSLA,UNH,URI,VZ,XOM",admin,,paused,2025-12-03 23:41:29.459829+00:00,2025-12-03 23:41:29.459829+00:00,2025-12-03 23:41:29.459829+00:00,
