@@ -51,12 +51,19 @@ def create_gemini_3_client(api_key: str, timeout: float = 120.0):
 
     Returns:
         genai.Client instance
+
+    Note:
+        The google-genai SDK expects timeout in MILLISECONDS, not seconds.
+        We convert here: 120 seconds -> 120,000 milliseconds
     """
     from google import genai
 
+    # Convert seconds to milliseconds (SDK expects ms)
+    timeout_ms = int(timeout * 1000)
+
     return genai.Client(
         api_key=api_key,
-        http_options={'timeout': timeout}
+        http_options={'timeout': timeout_ms}
     )
 
 
