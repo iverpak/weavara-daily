@@ -3238,13 +3238,199 @@ def create_feeds_for_ticker_new_architecture(ticker: str, metadata: dict) -> lis
     return feeds_created
 
 
-def refresh_feeds_for_active_tickers() -> Dict[str, Any]:
+# ------------------------------------------------------------------------------
+# FEED REFRESH COMPARISON HELPERS (Dec 2025)
+# These functions enable smart feed refresh - only update tickers whose
+# feed-relevant fields have changed, rather than refreshing all on every restart.
+# ------------------------------------------------------------------------------
+
+def get_feed_relevant_fields(tickers: List[str]) -> Dict[str, Dict[str, str]]:
     """
-    Refresh feed associations for all active user tickers.
+    Get feed-relevant fields from ticker_reference for comparison.
+
+    Args:
+        tickers: List of ticker symbols to query
+
+    Returns:
+        Dict mapping ticker to its feed-relevant fields:
+        {
+            'AAPL': {
+                'industry_keyword_1': 'smartphones',
+                'industry_keyword_2': 'consumer electronics',
+                'industry_keyword_3': 'tech hardware',
+                'competitor_1_name': 'Samsung', 'competitor_1_ticker': '005930.KS',
+                'competitor_2_name': 'Google', 'competitor_2_ticker': 'GOOGL',
+                'competitor_3_name': 'Microsoft', 'competitor_3_ticker': 'MSFT',
+                'upstream_1_name': 'TSMC', 'upstream_1_ticker': 'TSM',
+                'upstream_2_name': 'Foxconn', 'upstream_2_ticker': '2317.TW',
+                'downstream_1_name': 'Best Buy', 'downstream_1_ticker': 'BBY',
+                'downstream_2_name': 'Amazon', 'downstream_2_ticker': 'AMZN',
+            },
+            ...
+        }
+    """
+    if not tickers:
+        return {}
+
+    result = {}
+
+    try:
+        with db() as conn, conn.cursor() as cur:
+            # Query all feed-relevant fields for the given tickers
+            placeholders = ','.join(['%s'] * len(tickers))
+            cur.execute(f"""
+                SELECT ticker,
+                       industry_keyword_1, industry_keyword_2, industry_keyword_3,
+                       competitor_1_name, competitor_1_ticker,
+                       competitor_2_name, competitor_2_ticker,
+                       competitor_3_name, competitor_3_ticker,
+                       upstream_1_name, upstream_1_ticker,
+                       upstream_2_name, upstream_2_ticker,
+                       downstream_1_name, downstream_1_ticker,
+                       downstream_2_name, downstream_2_ticker
+                FROM ticker_reference
+                WHERE ticker IN ({placeholders})
+            """, tickers)
+
+            rows = cur.fetchall()
+
+            for row in rows:
+                ticker = row['ticker']
+                result[ticker] = {
+                    'industry_keyword_1': row.get('industry_keyword_1') or '',
+                    'industry_keyword_2': row.get('industry_keyword_2') or '',
+                    'industry_keyword_3': row.get('industry_keyword_3') or '',
+                    'competitor_1_name': row.get('competitor_1_name') or '',
+                    'competitor_1_ticker': row.get('competitor_1_ticker') or '',
+                    'competitor_2_name': row.get('competitor_2_name') or '',
+                    'competitor_2_ticker': row.get('competitor_2_ticker') or '',
+                    'competitor_3_name': row.get('competitor_3_name') or '',
+                    'competitor_3_ticker': row.get('competitor_3_ticker') or '',
+                    'upstream_1_name': row.get('upstream_1_name') or '',
+                    'upstream_1_ticker': row.get('upstream_1_ticker') or '',
+                    'upstream_2_name': row.get('upstream_2_name') or '',
+                    'upstream_2_ticker': row.get('upstream_2_ticker') or '',
+                    'downstream_1_name': row.get('downstream_1_name') or '',
+                    'downstream_1_ticker': row.get('downstream_1_ticker') or '',
+                    'downstream_2_name': row.get('downstream_2_name') or '',
+                    'downstream_2_ticker': row.get('downstream_2_ticker') or '',
+                }
+
+        LOG.info(f"📊 Retrieved feed-relevant fields for {len(result)}/{len(tickers)} tickers")
+        return result
+
+    except Exception as e:
+        LOG.error(f"❌ Failed to get feed-relevant fields: {e}")
+        return {}
+
+
+def normalize_field_value(value: str) -> str:
+    """Normalize a field value for comparison (lowercase, strip whitespace)."""
+    if not value:
+        return ''
+    return value.strip().lower()
+
+
+def feed_fields_changed(before: Dict[str, str], after: Dict[str, str]) -> bool:
+    """
+    Compare before/after feed-relevant fields for a single ticker.
+
+    Args:
+        before: Dict of field values before CSV sync
+        after: Dict of field values after CSV sync
+
+    Returns:
+        True if any feed-relevant field changed, False otherwise
+    """
+    # All fields that affect feed creation
+    fields_to_compare = [
+        'industry_keyword_1', 'industry_keyword_2', 'industry_keyword_3',
+        'competitor_1_name', 'competitor_1_ticker',
+        'competitor_2_name', 'competitor_2_ticker',
+        'competitor_3_name', 'competitor_3_ticker',
+        'upstream_1_name', 'upstream_1_ticker',
+        'upstream_2_name', 'upstream_2_ticker',
+        'downstream_1_name', 'downstream_1_ticker',
+        'downstream_2_name', 'downstream_2_ticker',
+    ]
+
+    for field in fields_to_compare:
+        before_val = normalize_field_value(before.get(field, ''))
+        after_val = normalize_field_value(after.get(field, ''))
+
+        if before_val != after_val:
+            return True
+
+    return False
+
+
+def get_tickers_with_changed_feeds(
+    before_state: Dict[str, Dict[str, str]],
+    after_state: Dict[str, Dict[str, str]],
+    all_active_tickers: List[str]
+) -> List[str]:
+    """
+    Determine which tickers have changed feed-relevant fields.
+
+    Args:
+        before_state: Feed fields before CSV sync
+        after_state: Feed fields after CSV sync
+        all_active_tickers: List of all active tickers (in case some are new)
+
+    Returns:
+        List of tickers that need feed refresh
+    """
+    changed_tickers = []
+
+    for ticker in all_active_tickers:
+        before = before_state.get(ticker, {})
+        after = after_state.get(ticker, {})
+
+        # Case 1: Ticker is new (not in before_state) - needs refresh
+        if not before and after:
+            LOG.info(f"[{ticker}] 🆕 New ticker detected - will refresh feeds")
+            changed_tickers.append(ticker)
+            continue
+
+        # Case 2: Ticker exists in both - compare fields
+        if before and after:
+            if feed_fields_changed(before, after):
+                # Log which fields changed for debugging
+                changed_fields = []
+                for field in before.keys():
+                    if normalize_field_value(before.get(field, '')) != normalize_field_value(after.get(field, '')):
+                        changed_fields.append(field)
+                LOG.info(f"[{ticker}] 📝 Fields changed: {', '.join(changed_fields)} - will refresh feeds")
+                changed_tickers.append(ticker)
+            # else: no changes, skip this ticker
+            continue
+
+        # Case 3: Ticker in before but not in after (removed from CSV)
+        # This shouldn't happen for active tickers, but handle gracefully
+        if before and not after:
+            LOG.warning(f"[{ticker}] ⚠️ Ticker missing from ticker_reference after sync - skipping")
+            continue
+
+        # Case 4: Ticker not in either before or after (not in ticker_reference at all)
+        # This means the ticker is in beta_users but has no CSV configuration
+        if not before and not after:
+            LOG.warning(f"[{ticker}] ⚠️ Ticker not in ticker_reference - skipping (add to CSV first)")
+            continue
+
+    return changed_tickers
+
+
+def refresh_feeds_for_active_tickers(before_state: Dict[str, Dict[str, str]] = None) -> Dict[str, Any]:
+    """
+    Refresh feed associations for active user tickers that have changed.
 
     Called at startup AFTER CSV sync to ensure feeds match current ticker_reference data.
 
-    For each active ticker:
+    Smart Refresh Logic (Dec 2025):
+    - If before_state is provided, only refresh tickers whose feed-relevant fields changed
+    - If before_state is None (fallback), refresh ALL active tickers (legacy behavior)
+
+    For each ticker that needs refresh:
     1. Delete existing ticker_feeds associations
     2. Get config from ticker_reference (just synced from CSV)
     3. Recreate feeds based on current config
@@ -3252,14 +3438,17 @@ def refresh_feeds_for_active_tickers() -> Dict[str, Any]:
     Feed IDs (in feeds table) are stable because they're keyed by URL.
     Only ticker_feeds associations are recreated.
 
-    Returns:
-        Dict with refresh results: {status, tickers_refreshed, feeds_created, errors}
-    """
-    LOG.info("🔄 Refreshing feeds for active tickers (ensuring feeds match CSV data)...")
+    Args:
+        before_state: Dict of feed-relevant fields BEFORE CSV sync (from get_feed_relevant_fields)
+                      If None, falls back to refreshing all active tickers.
 
+    Returns:
+        Dict with refresh results: {status, tickers_refreshed, tickers_skipped, feeds_created, errors}
+    """
     results = {
         "status": "success",
         "tickers_refreshed": 0,
+        "tickers_skipped": 0,
         "total_feeds_created": 0,
         "errors": []
     }
@@ -3275,9 +3464,40 @@ def refresh_feeds_for_active_tickers() -> Dict[str, Any]:
             results["message"] = "No active user tickers"
             return results
 
-        LOG.info(f"📋 Found {len(unique_tickers)} unique tickers from active users: {unique_tickers}")
+        LOG.info(f"📋 Found {len(unique_tickers)} unique active tickers: {unique_tickers}")
 
-        for ticker in unique_tickers:
+        # Determine which tickers need refresh
+        if before_state is not None:
+            # Smart refresh: only refresh changed tickers
+            LOG.info("🔍 Comparing feed-relevant fields to detect changes...")
+
+            # Get current state (after CSV sync)
+            after_state = get_feed_relevant_fields(unique_tickers)
+
+            if not after_state:
+                # Fallback: if we can't get after_state, refresh all
+                LOG.warning("⚠️ Failed to get current feed fields - falling back to full refresh")
+                tickers_to_refresh = unique_tickers
+            else:
+                # Compare and get list of changed tickers
+                tickers_to_refresh = get_tickers_with_changed_feeds(before_state, after_state, unique_tickers)
+
+                if not tickers_to_refresh:
+                    LOG.info(f"✅ No feed-relevant changes detected - skipping refresh for all {len(unique_tickers)} tickers")
+                    results["status"] = "skipped"
+                    results["message"] = "No feed-relevant changes detected"
+                    results["tickers_skipped"] = len(unique_tickers)
+                    return results
+
+                LOG.info(f"📝 {len(tickers_to_refresh)}/{len(unique_tickers)} tickers have changed feeds: {tickers_to_refresh}")
+                results["tickers_skipped"] = len(unique_tickers) - len(tickers_to_refresh)
+        else:
+            # Legacy behavior: refresh all tickers
+            LOG.info("🔄 No before_state provided - refreshing ALL active tickers (legacy mode)")
+            tickers_to_refresh = unique_tickers
+
+        # Refresh only the tickers that need it
+        for ticker in tickers_to_refresh:
             try:
                 # Step 1: Delete existing ticker_feeds associations for this ticker
                 with db() as conn, conn.cursor() as cur:
@@ -3318,7 +3538,8 @@ def refresh_feeds_for_active_tickers() -> Dict[str, Any]:
         if results["errors"]:
             results["status"] = "partial"
 
-        LOG.info(f"✅ Feed refresh complete: {results['tickers_refreshed']}/{len(unique_tickers)} tickers refreshed, "
+        skipped_msg = f", {results['tickers_skipped']} unchanged" if results['tickers_skipped'] > 0 else ""
+        LOG.info(f"✅ Feed refresh complete: {results['tickers_refreshed']}/{len(unique_tickers)} tickers refreshed{skipped_msg}, "
                  f"{results['total_feeds_created']} total feed associations created")
 
         if results["errors"]:
@@ -20201,7 +20422,24 @@ def job_worker_loop():
 
     LOG.info(f"🔧 Job worker started (worker_id: {get_worker_id()}, max_concurrent_jobs: {MAX_CONCURRENT_JOBS})")
 
-    # CRITICAL: Load CSV from GitHub BEFORE processing any jobs
+    # STEP 1: Capture feed-relevant fields BEFORE CSV sync (for smart comparison)
+    # This allows us to detect which tickers' feeds actually changed
+    feed_fields_before_sync = None
+    try:
+        LOG.info("📸 Capturing feed-relevant fields before CSV sync...")
+        ticker_recipients = load_active_users()
+        active_tickers = list(ticker_recipients.keys())
+
+        if active_tickers:
+            feed_fields_before_sync = get_feed_relevant_fields(active_tickers)
+            LOG.info(f"📸 Captured fields for {len(feed_fields_before_sync)} active tickers")
+        else:
+            LOG.info("📸 No active tickers - will skip comparison")
+    except Exception as e:
+        LOG.warning(f"⚠️ Failed to capture before-sync state: {e}")
+        LOG.warning("⚠️ Will fall back to refreshing all tickers")
+
+    # STEP 2: Sync CSV from GitHub (updates ticker_reference table)
     LOG.info("🔄 Syncing ticker reference from GitHub (job worker initialization)...")
     try:
         github_sync_result = sync_ticker_references_from_github()
@@ -20214,16 +20452,18 @@ def job_worker_loop():
         LOG.error(f"❌ GitHub sync crashed: {e}")
         LOG.error("⚠️ Worker will continue, but tickers may have incorrect data!")
 
-    # CRITICAL: Refresh feeds for active tickers AFTER CSV sync
-    # This ensures feeds match current ticker_reference data (industry keywords, competitors, upstream/downstream)
-    LOG.info("🔄 Refreshing feeds for active tickers (post-CSV sync)...")
+    # STEP 3: Refresh feeds for active tickers AFTER CSV sync (smart comparison)
+    # Only refreshes tickers whose feed-relevant fields changed (Dec 2025 optimization)
+    LOG.info("🔄 Checking for feed changes (smart refresh)...")
     try:
-        feed_refresh_result = refresh_feeds_for_active_tickers()
+        feed_refresh_result = refresh_feeds_for_active_tickers(before_state=feed_fields_before_sync)
         if feed_refresh_result["status"] == "success":
-            LOG.info(f"✅ Feed refresh successful: {feed_refresh_result.get('tickers_refreshed', 0)} tickers, "
+            skipped = feed_refresh_result.get('tickers_skipped', 0)
+            skipped_msg = f", {skipped} unchanged" if skipped > 0 else ""
+            LOG.info(f"✅ Feed refresh successful: {feed_refresh_result.get('tickers_refreshed', 0)} tickers refreshed{skipped_msg}, "
                      f"{feed_refresh_result.get('total_feeds_created', 0)} feed associations")
         elif feed_refresh_result["status"] == "skipped":
-            LOG.info(f"⏭️ Feed refresh skipped: {feed_refresh_result.get('message', 'No active tickers')}")
+            LOG.info(f"⏭️ Feed refresh skipped: {feed_refresh_result.get('message', 'No changes detected')}")
         else:
             LOG.warning(f"⚠️ Feed refresh had issues: {feed_refresh_result.get('status', 'unknown')}")
             if feed_refresh_result.get('errors'):
