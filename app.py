@@ -13248,7 +13248,8 @@ async def generate_executive_summary_all_phases(
             if "claude" in phase3_model.lower():
                 calculate_claude_api_cost(phase3_usage, "executive_summary_phase3", model_name=phase3_model)
             elif "gemini" in phase3_model.lower():
-                calculate_gemini_api_cost(phase3_usage, "executive_summary_phase3", model="pro", model_name=phase3_model)
+                # Gemini 3.0 Flash Preview (fallback)
+                calculate_gemini_api_cost(phase3_usage, "executive_summary_phase3", model="flash3", model_name=phase3_model)
             else:
                 LOG.warning(f"[{ticker}] Phase 3 cost tracking: Unknown model '{phase3_model}'")
 
@@ -13318,7 +13319,8 @@ async def generate_executive_summary_all_phases(
             if "claude" in phase4_model.lower():
                 calculate_claude_api_cost(phase4_usage, "executive_summary_phase4", model_name=phase4_model)
             elif "gemini" in phase4_model.lower():
-                calculate_gemini_api_cost(phase4_usage, "executive_summary_phase4", model="pro", model_name=phase4_model)
+                # Gemini 3.0 Flash Preview (fallback)
+                calculate_gemini_api_cost(phase4_usage, "executive_summary_phase4", model="flash3", model_name=phase4_model)
 
         # Post-process Phase 4 dates (compute date_range from bullet dates, not AI)
         phase4_result = post_process_phase4_dates(
@@ -18046,7 +18048,8 @@ async def process_regenerate_email_phase(job: dict):
                     if "claude" in phase3_model.lower():
                         calculate_claude_api_cost(phase3_usage, "executive_summary_phase3", model_name=phase3_model)
                     elif "gemini" in phase3_model.lower():
-                        calculate_gemini_api_cost(phase3_usage, "executive_summary_phase3", model="pro", model_name=phase3_model)
+                        # Gemini 3.0 Flash Preview (fallback)
+                        calculate_gemini_api_cost(phase3_usage, "executive_summary_phase3", model="flash3", model_name=phase3_model)
 
                 update_job_status(job_id, progress=80)
 
@@ -18087,7 +18090,8 @@ async def process_regenerate_email_phase(job: dict):
                             if "claude" in phase4_model.lower():
                                 calculate_claude_api_cost(phase4_usage, "executive_summary_phase4", model_name=phase4_model)
                             elif "gemini" in phase4_model.lower():
-                                calculate_gemini_api_cost(phase4_usage, "executive_summary_phase4", model="pro", model_name=phase4_model)
+                                # Gemini 3.0 Flash Preview (fallback)
+                                calculate_gemini_api_cost(phase4_usage, "executive_summary_phase4", model="flash3", model_name=phase4_model)
 
                         # Phase 4 is mandatory - fail if it doesn't return a result
                         if not phase4_result:

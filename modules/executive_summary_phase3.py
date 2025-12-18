@@ -27,7 +27,13 @@ def _generate_phase3_gemini(
     gemini_api_key: str
 ) -> Tuple[Optional[Dict], Optional[Dict]]:
     """
-    Generate Phase 3 integrated content using Gemini 2.5 Pro (fallback).
+    Generate Phase 3 integrated content using Gemini 3.0 Flash Preview (fallback).
+
+    Migration Notes (Dec 2025):
+    - Upgraded from Gemini 2.5 Pro to Gemini 3.0 Flash Preview
+    - New SDK: google-genai (not google-generativeai)
+    - Temperature: 1.0 (required for reasoning) with seed=42 for determinism
+    - Thinking Level: HIGH for best accuracy
 
     Args:
         ticker: Stock ticker
@@ -37,14 +43,19 @@ def _generate_phase3_gemini(
     Returns:
         Tuple of (final_merged_json, usage_dict) where:
             - final_merged_json: Phase 2 metadata + Phase 3 integrated content (or None if failed)
-            - usage_dict: {"prompt_tokens": X, "completion_tokens": Y} or None
+            - usage_dict: {"prompt_tokens": X, "completion_tokens": Y, "thought_tokens": Z, "cached_tokens": W} or None
     """
-    import google.generativeai as genai
+    from google.genai import types
+    from modules.gemini_3_utils import (
+        create_gemini_3_client,
+        call_with_retry,
+        extract_usage_metadata,
+        extract_response_text,
+        build_thinking_config,
+        calculate_flash_3_cost
+    )
 
     try:
-        # Configure Gemini
-        genai.configure(api_key=gemini_api_key)
-
         # Load Phase 3 prompt from file
         prompt_path = os.path.join(os.path.dirname(__file__), '_build_executive_summary_prompt_phase3')
         with open(prompt_path, 'r', encoding='utf-8') as f:
@@ -53,68 +64,50 @@ def _generate_phase3_gemini(
         # Build user content (Phase 2 merged JSON as formatted string)
         user_content = json.dumps(phase2_merged_json, indent=2)
 
-        # Create Gemini model with system instruction
-        model = genai.GenerativeModel(
-            'gemini-2.5-pro',
-            system_instruction=system_prompt
+        # Create client with 120s timeout for HIGH thinking
+        client = create_gemini_3_client(gemini_api_key, timeout=120.0)
+
+        # Build contents with system prompt first (enables implicit caching)
+        contents = [
+            types.Part.from_text(text=system_prompt),
+            types.Part.from_text(text=user_content)
+        ]
+
+        # Configure for HIGH thinking with deterministic output
+        config = build_thinking_config(
+            thinking_level="HIGH",
+            include_thoughts=False,
+            temperature=1.0,
+            max_output_tokens=16000,
+            seed=42,
+            response_mime_type="application/json"
         )
 
-        LOG.info(f"[{ticker}] Calling Gemini 2.5 Pro for Phase 3 context integration")
+        LOG.info(f"[{ticker}] Phase 3: Calling Gemini 3.0 Flash Preview (fallback, thinking=HIGH)")
 
-        # Retry logic for transient errors
-        max_retries = 2
-        response = None
-        generation_time_ms = 0
+        start_time = time.time()
 
-        for attempt in range(max_retries + 1):
-            try:
-                start_time = time.time()
-                response = model.generate_content(
-                    user_content,
-                    generation_config={
-                        'temperature': 0.0,
-                        'max_output_tokens': 16000
-                    }
-                )
-                generation_time_ms = int((time.time() - start_time) * 1000)
+        # Call with smart retry (handles 429 vs 503 vs timeout differently)
+        response = call_with_retry(
+            client=client,
+            model="gemini-3-flash-preview",
+            contents=contents,
+            config=config,
+            max_retries=2,
+            ticker=ticker
+        )
 
-                # Success - break retry loop
-                break
+        generation_time_ms = int((time.time() - start_time) * 1000)
 
-            except Exception as e:
-                error_str = str(e)
-
-                # Check for retryable errors
-                is_retryable = (
-                    'ResourceExhausted' in error_str or
-                    'quota' in error_str.lower() or
-                    '429' in error_str or
-                    'ServiceUnavailable' in error_str or
-                    '503' in error_str or
-                    'DeadlineExceeded' in error_str or
-                    'timeout' in error_str.lower()
-                )
-
-                if is_retryable and attempt < max_retries:
-                    wait_time = 2 ** attempt
-                    LOG.warning(f"[{ticker}] ⚠️ Gemini Phase 3 error (attempt {attempt + 1}/{max_retries + 1}): {error_str[:200]}")
-                    LOG.warning(f"[{ticker}] 🔄 Retrying in {wait_time}s...")
-                    time.sleep(wait_time)
-                    continue
-                else:
-                    LOG.error(f"[{ticker}] ❌ Gemini 2.5 Pro Phase 3 failed after {attempt + 1} attempts: {error_str}")
-                    return None, None
-
-        # Check if we got a response
         if response is None:
-            LOG.error(f"[{ticker}] ❌ No response from Gemini Phase 3 after {max_retries + 1} attempts")
+            LOG.error(f"[{ticker}] ❌ Phase 3: No response from Gemini after retries")
             return None, None
 
-        # Extract text from response
-        response_text = response.text
+        # Extract text (filters out thought parts)
+        response_text = extract_response_text(response)
 
         if not response_text or len(response_text.strip()) < 10:
-            LOG.error(f"[{ticker}] ❌ Gemini returned empty Phase 3 response")
+            LOG.error(f"[{ticker}] ❌ Phase 3: Gemini returned empty response")
             return None, None
 
         # Parse JSON response
@@ -123,18 +116,26 @@ def _generate_phase3_gemini(
             LOG.error(f"[{ticker}] Failed to parse Phase 3 JSON from Gemini response")
             return None, None
 
-        # Extract token usage
-        prompt_tokens = response.usage_metadata.prompt_token_count if hasattr(response, 'usage_metadata') else 0
-        completion_tokens = response.usage_metadata.candidates_token_count if hasattr(response, 'usage_metadata') else 0
+        # Extract token usage including thinking and cache tokens
+        usage_meta = extract_usage_metadata(response)
+
+        # Calculate cost
+        cost = calculate_flash_3_cost(usage_meta)
 
         usage = {
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "model": "gemini-2.5-pro"  # Track which model was used
+            "prompt_tokens": usage_meta['prompt_tokens'],
+            "completion_tokens": usage_meta['output_tokens'],
+            "thought_tokens": usage_meta['thought_tokens'],
+            "cached_tokens": usage_meta['cached_tokens'],
+            "model": "gemini-3-flash-preview"
         }
 
-        LOG.info(f"[{ticker}] ✅ Phase 3 Gemini JSON generated ({len(response_text)} chars, "
-                f"{prompt_tokens} prompt tokens, {completion_tokens} completion tokens, {generation_time_ms}ms)")
+        LOG.info(
+            f"[{ticker}] ✅ Phase 3 Gemini 3.0 success: "
+            f"{usage_meta['prompt_tokens']} prompt ({usage_meta['cached_tokens']} cached), "
+            f"{usage_meta['thought_tokens']} thought, {usage_meta['output_tokens']} output, "
+            f"{generation_time_ms}ms, ${cost:.4f}"
+        )
 
         # Merge Phase 3 integrated content with Phase 2 metadata
         from modules.executive_summary_phase2 import merge_phase3_with_phase2
@@ -333,9 +334,9 @@ def generate_executive_summary_phase3(
     """
     # Choose provider order based on primary_model setting
     if primary_model == 'gemini':
-        # Try Gemini 2.5 Pro first (primary)
+        # Try Gemini 3.0 Flash Preview first (primary)
         if gemini_api_key:
-            LOG.info(f"[{ticker}] Phase 3: Attempting Gemini 2.5 Pro (primary)")
+            LOG.info(f"[{ticker}] Phase 3: Attempting Gemini 3.0 Flash Preview (primary)")
             gemini_result = _generate_phase3_gemini(
                 ticker=ticker,
                 phase2_merged_json=phase2_merged_json,
@@ -344,17 +345,17 @@ def generate_executive_summary_phase3(
 
             final_merged, usage = gemini_result
             if final_merged and usage:
-                LOG.info(f"[{ticker}] ✅ Phase 3: Gemini 2.5 Pro succeeded")
+                LOG.info(f"[{ticker}] ✅ Phase 3: Gemini 3.0 Flash Preview succeeded")
                 # Convert Gemini usage format to match Claude format for compatibility
                 if "prompt_tokens" in usage:
                     usage = {
                         "input_tokens": usage["prompt_tokens"],
                         "output_tokens": usage["completion_tokens"],
-                        "model": usage.get("model", "gemini-2.5-pro")  # Preserve model info
+                        "model": usage.get("model", "gemini-3-flash-preview")  # Preserve model info
                     }
                 return final_merged, usage
             else:
-                LOG.warning(f"[{ticker}] ⚠️ Phase 3: Gemini 2.5 Pro failed, falling back to Claude Sonnet 4.5")
+                LOG.warning(f"[{ticker}] ⚠️ Phase 3: Gemini 3.0 Flash Preview failed, falling back to Claude Sonnet 4.5")
         else:
             LOG.warning(f"[{ticker}] ⚠️ No Gemini API key provided, using Claude Sonnet 4.5 only")
 
@@ -402,13 +403,13 @@ def generate_executive_summary_phase3(
                     if attempt < max_attempts:
                         LOG.warning(f"[{ticker}] ⚠️ Phase 3: Claude attempt {attempt} failed (JSON/validation), retrying...")
                     else:
-                        LOG.warning(f"[{ticker}] ⚠️ Phase 3: Claude failed {max_attempts} times, falling back to Gemini 2.5 Pro")
+                        LOG.warning(f"[{ticker}] ⚠️ Phase 3: Claude failed {max_attempts} times, falling back to Gemini 3.0 Flash Preview")
         else:
-            LOG.warning(f"[{ticker}] ⚠️ No Anthropic API key provided, using Gemini 2.5 Pro only")
+            LOG.warning(f"[{ticker}] ⚠️ No Anthropic API key provided, using Gemini 3.0 Flash Preview only")
 
-        # Fall back to Gemini 2.5 Pro
+        # Fall back to Gemini 3.0 Flash Preview
         if gemini_api_key:
-            LOG.info(f"[{ticker}] Phase 3: Using Gemini 2.5 Pro (fallback)")
+            LOG.info(f"[{ticker}] Phase 3: Using Gemini 3.0 Flash Preview (fallback)")
             gemini_result = _generate_phase3_gemini(
                 ticker=ticker,
                 phase2_merged_json=phase2_merged_json,
@@ -417,17 +418,17 @@ def generate_executive_summary_phase3(
 
             final_merged, usage = gemini_result
             if final_merged and usage:
-                LOG.info(f"[{ticker}] ✅ Phase 3: Gemini 2.5 Pro succeeded (fallback)")
+                LOG.info(f"[{ticker}] ✅ Phase 3: Gemini 3.0 Flash Preview succeeded (fallback)")
                 # Convert Gemini usage format to match Claude format for compatibility
                 if "prompt_tokens" in usage:
                     usage = {
                         "input_tokens": usage["prompt_tokens"],
                         "output_tokens": usage["completion_tokens"],
-                        "model": usage.get("model", "gemini-2.5-pro")  # Preserve model info
+                        "model": usage.get("model", "gemini-3-flash-preview")  # Preserve model info
                     }
                 return final_merged, usage
             else:
-                LOG.error(f"[{ticker}] ❌ Phase 3: Gemini 2.5 Pro also failed")
+                LOG.error(f"[{ticker}] ❌ Phase 3: Gemini 3.0 Flash Preview also failed")
         else:
             LOG.error(f"[{ticker}] ❌ No Gemini API key provided for fallback")
 
