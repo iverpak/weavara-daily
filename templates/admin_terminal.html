@@ -327,7 +327,7 @@
     </div>
 
     <div class="footer">
-        <p>Weavara Research Terminal | Powered by Gemini 2.5 Flash</p>
+        <p>Weavara Research Terminal | Powered by Gemini 3.0 Flash Preview</p>
     </div>
 
     <!-- Markdown Parser -->
@@ -461,9 +461,11 @@
                 // Render markdown answer
                 answerContent.innerHTML = marked.parse(data.answer);
 
-                // Display token stats
+                // Display token stats (with cache info for Gemini 3.0)
                 const costStr = data.cost ? `$${data.cost.toFixed(4)}` : 'N/A';
-                tokenStats.innerHTML = `📊 Tokens: ${data.input_tokens?.toLocaleString() || 'N/A'} in / ${data.output_tokens?.toLocaleString() || 'N/A'} out | Cost: ${costStr}`;
+                const cachedStr = data.cached_tokens ? ` (${data.cached_tokens.toLocaleString()} cached)` : '';
+                const modelStr = data.model || 'gemini-3-flash-preview';
+                tokenStats.innerHTML = `📊 Tokens: ${data.input_tokens?.toLocaleString() || 'N/A'}${cachedStr} in / ${data.output_tokens?.toLocaleString() || 'N/A'} out | Cost: ${costStr} | Model: ${modelStr}`;
 
                 answerBox.classList.add('visible');
 

@@ -2,7 +2,14 @@
 Research Terminal Module
 
 Interactive Q&A interface for querying saved research documents (10-K, 10-Q, Transcripts, 8-K)
-using Gemini 2.5 Flash.
+using Gemini 3.0 Flash Preview.
+
+Migration Notes (Dec 2025):
+- Upgraded from google-generativeai (legacy) to google-genai (new SDK)
+- Model: gemini-3-flash-preview (smarter than 2.5 Pro, 3x faster)
+- Temperature: 1.0 (required for Gemini 3.0 reasoning)
+- Thinking Level: HIGH (best accuracy for SEC filing analysis)
+- Implicit caching: Automatic after 2,048 token prefix match
 
 Usage:
     from modules.research_terminal import query_research_terminal, get_available_tickers
@@ -19,6 +26,10 @@ import logging
 from typing import Dict, List, Any, Callable
 
 LOG = logging.getLogger(__name__)
+
+# Gemini 3.0 Flash Pricing (Dec 2025)
+GEMINI_3_INPUT_COST_PER_1M = 0.50   # $0.50 per 1M input tokens
+GEMINI_3_OUTPUT_COST_PER_1M = 3.00  # $3.00 per 1M output tokens (includes thinking tokens)
 
 # ------------------------------------------------------------------------------
 # PROMPT TEMPLATE
@@ -193,7 +204,12 @@ def query_research_terminal(
     gemini_api_key: str
 ) -> Dict[str, Any]:
     """
-    Query research documents for a ticker using Gemini 2.5 Flash.
+    Query research documents for a ticker using Gemini 3.0 Flash Preview.
+
+    Uses the new google-genai SDK with:
+    - Temperature 1.0 (required for Gemini 3.0 reasoning)
+    - Thinking Level HIGH (best accuracy for financial analysis)
+    - Implicit caching (automatic after 2,048 token prefix match)
 
     Args:
         ticker: Stock ticker symbol
@@ -205,9 +221,10 @@ def query_research_terminal(
         Dict with:
             - answer: AI-generated answer (markdown)
             - sources_used: List of sources cited
-            - input_tokens: Estimated input token count
-            - output_tokens: Estimated output token count
+            - input_tokens: Token count from API response
+            - output_tokens: Token count from API response (includes thinking tokens)
             - cost: Estimated cost in USD
+            - cached: Whether implicit caching was used
             - error: Error message if failed (optional)
     """
     # Build context
@@ -220,52 +237,101 @@ def query_research_terminal(
     full_context = "\n\n".join(context["context_parts"])
     sources_used = context["sources_used"]
 
-    # Build the prompt
+    # Build the system prompt (this is the cacheable prefix)
     system_prompt = RESEARCH_TERMINAL_SYSTEM_PROMPT.format(
         ticker=ticker,
         sources_list=', '.join(sources_used),
         documents_context=full_context
     )
 
-    # Call Gemini 2.5 Flash
+    # Call Gemini 3.0 Flash Preview
     try:
-        import google.generativeai as genai
-        genai.configure(api_key=gemini_api_key)
+        from google import genai
+        from google.genai import types
+        from google.genai import errors as genai_errors
 
-        model = genai.GenerativeModel("gemini-2.5-flash")
+        # Initialize client with API key
+        client = genai.Client(api_key=gemini_api_key)
 
-        # Estimate input tokens (~4 chars per token)
-        input_text = system_prompt + "\n" + question
-        estimated_input_tokens = len(input_text) // 4
+        # Build contents with system prompt FIRST (enables implicit caching)
+        # The prefix must be identical across requests for caching to work
+        contents = [
+            types.Part.from_text(text=system_prompt),
+            types.Part.from_text(text=f"Question: {question}")
+        ]
 
-        response = model.generate_content(
-            [{"role": "user", "parts": [{"text": system_prompt + "\n\nQuestion: " + question}]}],
-            generation_config={
-                "temperature": 0.3,
-                "max_output_tokens": 16384,
-            }
+        # Configure for HIGH thinking (best accuracy) with thoughts hidden from output
+        config = types.GenerateContentConfig(
+            thinking_config=types.ThinkingConfig(
+                include_thoughts=False,  # Don't include reasoning in response
+                thinking_level=types.ThinkingLevel.HIGH  # Best accuracy for financial analysis
+            ),
+            temperature=1.0,  # Required for Gemini 3.0 reasoning
+            max_output_tokens=16384
         )
 
-        answer = response.text
+        # Make the API call
+        response = client.models.generate_content(
+            model="gemini-3-flash-preview",
+            contents=contents,
+            config=config
+        )
 
-        # Estimate output tokens
-        estimated_output_tokens = len(answer) // 4
+        # Extract the answer (with include_thoughts=False, thoughts are omitted from parts)
+        answer = "".join([
+            part.text for part in response.candidates[0].content.parts
+            if not getattr(part, 'thought', False)  # Defensive check in case config changes
+        ])
 
-        # Calculate cost (Gemini 2.5 Flash pricing)
-        # Input: $0.075 per 1M tokens, Output: $0.30 per 1M tokens
-        input_cost = (estimated_input_tokens / 1_000_000) * 0.075
-        output_cost = (estimated_output_tokens / 1_000_000) * 0.30
-        total_cost = input_cost + output_cost
+        # Get actual token counts from response metadata
+        usage = response.usage_metadata
+        input_tokens = usage.prompt_token_count
+        output_tokens = usage.candidates_token_count
+        # cached_content_token_count may be absent on first call (no cache hit)
+        cached_tokens = getattr(usage, 'cached_content_token_count', 0)
+
+        # Calculate cost (Gemini 3.0 Flash pricing)
+        # Cached tokens cost 90% less ($0.05 per 1M vs $0.50)
+        uncached_input_tokens = input_tokens - cached_tokens
+        input_cost = (uncached_input_tokens / 1_000_000) * GEMINI_3_INPUT_COST_PER_1M
+        cache_cost = (cached_tokens / 1_000_000) * 0.05  # Cache read rate
+        output_cost = (output_tokens / 1_000_000) * GEMINI_3_OUTPUT_COST_PER_1M
+        total_cost = input_cost + cache_cost + output_cost
+
+        LOG.info(f"[{ticker}] Research Terminal: {input_tokens} input ({cached_tokens} cached), {output_tokens} output, ${total_cost:.4f}")
 
         return {
             "answer": answer,
             "sources_used": sources_used,
-            "input_tokens": estimated_input_tokens,
-            "output_tokens": estimated_output_tokens,
-            "cost": total_cost
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "cached_tokens": cached_tokens,
+            "cost": total_cost,
+            "model": "gemini-3-flash-preview"
         }
 
+    # Specific Gemini 3.0 SDK error handling
+    except genai_errors.ClientError as e:
+        # 400 errors - config issues, invalid requests, rate limits
+        error_str = str(e).lower()
+        if 'rate' in error_str or 'quota' in error_str or '429' in error_str:
+            LOG.error(f"[{ticker}] Research terminal rate limit: {e}")
+            return {"error": "Rate limit exceeded. Please wait a moment and try again."}
+        LOG.error(f"[{ticker}] Research terminal client error (400): {e}")
+        return {"error": f"Request error: {str(e)}"}
+
+    except genai_errors.ServerError as e:
+        # 500/503 errors - Google server issues
+        LOG.error(f"[{ticker}] Research terminal server error (5xx): {e}")
+        return {"error": "Google AI service temporarily unavailable. Please try again later."}
+
+    except genai_errors.APIError as e:
+        # Other API errors
+        LOG.error(f"[{ticker}] Research terminal API error: {e}")
+        return {"error": f"API error: {str(e)}"}
+
     except Exception as e:
+        # Catch-all for unexpected errors
         LOG.error(f"[{ticker}] Research terminal query failed: {e}")
         import traceback
         traceback.print_exc()
