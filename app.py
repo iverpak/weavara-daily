@@ -26360,7 +26360,7 @@ DOCUMENTS:
             [{"role": "user", "parts": [{"text": system_prompt + "\n\nQuestion: " + user_prompt}]}],
             generation_config={
                 "temperature": 0.3,
-                "max_output_tokens": 2048,
+                "max_output_tokens": 16384,
             }
         )
 
