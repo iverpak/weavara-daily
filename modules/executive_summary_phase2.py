@@ -500,8 +500,8 @@ def _generate_phase2_gemini(
     Migration Notes (Dec 2025):
     - Upgraded from Gemini 2.5 Pro to Gemini 3.0 Flash Preview
     - New SDK: google-genai (not google-generativeai)
-    - Temperature: 1.0 (required for reasoning) with seed=42 for determinism
-    - Thinking Level: HIGH for best accuracy
+    - Temperature: 0.6 (reduces promotional language and bullish bias vs 1.0)
+    - Thinking Level: MEDIUM (high reasoning but more concise than HIGH)
 
     Args:
         ticker: Stock ticker symbol
@@ -579,17 +579,19 @@ Downstream Customers: {entity_refs['downstream']}
             types.Part.from_text(text=user_content)
         ]
 
-        # Configure for HIGH thinking with deterministic output
+        # Configure for MEDIUM thinking with balanced temperature
+        # MEDIUM: High reasoning but more concise than HIGH
+        # Temperature 0.6: Reduces promotional language and bullish bias vs 1.0
         config_obj = build_thinking_config(
-            thinking_level="HIGH",
+            thinking_level="MEDIUM",
             include_thoughts=False,
-            temperature=1.0,
+            temperature=0.6,
             max_output_tokens=20000,
             seed=42,
             response_mime_type="application/json"
         )
 
-        LOG.info(f"[{ticker}] Phase 2: Calling Gemini 3.0 Flash Preview (thinking=HIGH)")
+        LOG.info(f"[{ticker}] Phase 2: Calling Gemini 3.0 Flash Preview (thinking=MEDIUM, temp=0.6)")
 
         start_time = time.time()
 
