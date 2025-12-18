@@ -93,21 +93,21 @@ Return JSON with exactly 3 paragraph sections:
 ```json
 {
   "phase4_bottom_line": {
-    "content": "Paragraph text (article-derived, <=150 words)",
-    "context": "Filing synthesis (50-75 words)",
+    "content": "Paragraph text (article-derived, <=100 words)",
+    "context": "Filing synthesis (35-50 words)",
     "source_articles": [0, 2, 5],
     "date_range": "",
     "word_count": 142
   },
   "phase4_upside_scenario": {
-    "content": "Paragraph text (80-160 words)",
-    "context": "Filing synthesis (50-75 words)",
+    "content": "Paragraph text (55-110 words)",
+    "context": "Filing synthesis (35-50 words)",
     "source_articles": [1, 3],
     "date_range": ""
   },
   "phase4_downside_scenario": {
-    "content": "Paragraph text (80-160 words)",
-    "context": "Filing synthesis (50-75 words)",
+    "content": "Paragraph text (55-110 words)",
+    "context": "Filing synthesis (35-50 words)",
     "source_articles": [4, 6],
     "date_range": ""
   }
@@ -214,12 +214,12 @@ BOTTOM LINE (check _signal_counts.total_count):
 UPSIDE SCENARIO (check _signal_counts.bullish_count):
 - If _signal_counts.bullish_count = 0 → Use verbatim escape hatch above
 - If _signal_counts.bullish_count = 1 → Write 1-2 sentences + verbatim escape hatch above
-- If _signal_counts.bullish_count ≥ 2 → Full 80-160 word scenario
+- If _signal_counts.bullish_count ≥ 2 → Full 55-110 word scenario
 
 DOWNSIDE SCENARIO (check _signal_counts.bearish_count):
 - If _signal_counts.bearish_count = 0 → Use verbatim escape hatch above
 - If _signal_counts.bearish_count = 1 → Write 1-2 sentences + verbatim escape hatch above
-- If _signal_counts.bearish_count ≥ 2 → Full 80-160 word scenario
+- If _signal_counts.bearish_count ≥ 2 → Full 55-110 word scenario
 
 QUIET DAY OUTPUT EXAMPLE (0 total surviving bullets):
 {
@@ -277,7 +277,7 @@ OPERATIONAL MECHANICS - COST/REVENUE DIRECTION:
 Do not reverse the direction of impact based on assumptions.
 
 ===============================================================================
-BOTTOM LINE - EDITORIAL DISCIPLINE (<=150 words)
+BOTTOM LINE - EDITORIAL DISCIPLINE (<=100 words)
 ===============================================================================
 
 Bottom Line is a PARAGRAPH synthesized from surviving bullets.
@@ -306,7 +306,7 @@ Before writing each sentence, ask:
 FORBIDDEN VERBS: "strengthened", "support", "pressure", "created", "positioned"
 ALLOWED VERBS: "reached", "increased to", "reported", "per [Source]"
 
-STRUCTURE (<=150 words total):
+STRUCTURE (<=100 words total):
 - Sentences 1-2: Most material development from surviving bullets
 - Sentences 3-4: Key quantified context with BALANCED PERSPECTIVE
   -> If surviving bullets include both bullish AND bearish, BOTH must appear
@@ -331,18 +331,18 @@ Example format:
 
 MANDATORY ATTRIBUTION CHECK:
 Before finalizing Bottom Line:
-1. Count major factual claims (typically 8-12 claims in 150-word Bottom Line)
+1. Count major factual claims (typically 5-8 claims in 100-word Bottom Line)
 2. Count attributions (must be 100% of claims)
 3. If below 100%: Add specific sources ("per Bloomberg" not "per reports")
 4. Verify no vague attribution ("per analyst" -> "per Wedbush analyst")
 5. Recount - must hit 100% threshold
 
 MANDATORY LENGTH CHECK:
-After writing Bottom Line, count words. If >150 words:
+After writing Bottom Line, count words. If >100 words:
 1. Remove lowest-priority detail (usually: granular peer comparisons, secondary metrics)
 2. Condense monitoring guidance (belongs in Key Variables anyway)
 3. Trim redundant phrasing ("announced that they will" -> "will")
-4. Recount - repeat until <=150 words
+4. Recount - repeat until <=100 words
 
 EDITORIAL BANS - Never characterize sentiment or tone:
 
@@ -375,7 +375,7 @@ OK "Five negative articles published vs 2 positive; Barclays cut price target 15
 Let the facts speak for themselves. Never editorialize.
 
 ===============================================================================
-UPSIDE SCENARIO: Single paragraph, 3-6 sentences (80-160 words)
+UPSIDE SCENARIO: Single paragraph, 3-5 sentences (55-110 words)
 ===============================================================================
 
 CONTENT SUFFICIENCY CHECK - Count surviving bullets with sentiment="bullish":
@@ -418,7 +418,7 @@ OK "Per [Named Source], analysts projected..."
 OK "[Executive name with title] stated..." - "CFO Vaibhav Taneja stated..."
 
 ===============================================================================
-DOWNSIDE SCENARIO: Single paragraph, 3-6 sentences (80-160 words)
+DOWNSIDE SCENARIO: Single paragraph, 3-5 sentences (55-110 words)
 ===============================================================================
 
 CONTENT SUFFICIENCY CHECK - Count surviving bullets with sentiment="bearish":
@@ -452,7 +452,7 @@ PHASE B: CONTEXT SYNTHESIS
 ===============================================================================
 
 ===============================================================================
-CONTEXT SYNTHESIS RULES (HARD LIMIT: 50-75 words per section)
+CONTEXT SYNTHESIS RULES (HARD LIMIT: 35-50 words per section)
 ===============================================================================
 
 For each paragraph section (bottom_line, upside_scenario, downside_scenario):
@@ -486,7 +486,7 @@ STEP 2: Review bullet context fields (priority order)
 - THEN: Context fields of other surviving bullets (if needed for coverage)
 - Each bullet has a `context` field (40-50 words from Phase 2)
 
-STEP 3: Select 2-3 most relevant contexts (budget: ~20-25 words each = 50-75 total)
+STEP 3: Select 1-2 most relevant contexts (budget: ~20-25 words each = 35-50 total)
 - Ask: "Which bullet contexts would add the most valuable
   quantification/materiality/explanation for what my content discussed?"
 - Prioritize contexts that enrich the narrative in content's order of emphasis
@@ -504,26 +504,26 @@ STEP 3: Select 2-3 most relevant contexts (budget: ~20-25 words each = 50-75 tot
   11. What's the cost/revenue exposure? (COGS breakdown, pricing)
   12. What is this entity? (define unfamiliar divisions, targets, products)
 
-CRITICAL: Pick 2-3 of these questions maximum. Do NOT try to answer all 12.
-Your context budget is 50-75 words total - roughly 2-3 data points.
+CRITICAL: Pick 1-2 of these questions maximum. Do NOT try to answer all 12.
+Your context budget is 35-50 words total - roughly 1-2 data points.
 
 STEP 4: Verify thread mapping before synthesizing
 - For EACH key thread in your content, identify which context substantiates it
 - If a content thread has no supporting context → either the thread shouldn't be in content, or use escape hatch
 - No orphan data points in context (every fact must link to a content claim)
 
-STEP 5: Synthesize into 50-75 words
+STEP 5: Synthesize into 35-50 words
 - Extract key facts from selected contexts
 - Combine into natural prose with proper citations (per FY2024 10-K, per Q3 10-Q, per Oct 23 call)
 - Remove redundancy if multiple contexts cite the same fact
 - Use semicolons to separate distinct data points
 
 MANDATORY CONTEXT LENGTH CHECK:
-After writing context, count words. If >75 words:
-1. Keep only the 2-3 most material data points
+After writing context, count words. If >50 words:
+1. Keep only the 1-2 most material data points
 2. Remove any data point not directly linked to a content thread
 3. Condense citations (combine "per 10-K" and "per 10-Q" where possible)
-4. Recount - repeat until ≤75 words
+4. Recount - repeat until ≤50 words
 
 CONTEXT RELEVANCE CRITERIA (all must be met):
 ✓ Thread match: Context supports a specific thread in your content paragraph
@@ -666,7 +666,7 @@ FIRST: Check _signal_counts from input JSON:
 [ ] Read _signal_counts.bearish_count → decides Downside escape hatch
 
 BOTTOM LINE (if _signal_counts.total_count >= 1, write full synthesis):
-[ ] <=150 words (or escape hatch if _signal_counts.total_count = 0)
+[ ] <=100 words (or escape hatch if _signal_counts.total_count = 0)
 [ ] Escape hatch: "No material developments reported this period."
 [ ] 100% attribution density
 [ ] No banned phrases/verbs
@@ -674,7 +674,7 @@ BOTTOM LINE (if _signal_counts.total_count >= 1, write full synthesis):
 [ ] source_articles contains only used bullet indices
 
 UPSIDE SCENARIO (check _signal_counts.bullish_count):
-[ ] 80-160 words (or escape hatch if _signal_counts.bullish_count = 0-1)
+[ ] 55-110 words (or escape hatch if _signal_counts.bullish_count = 0-1)
 [ ] Escape hatch (0 bullish): "No material upside catalysts discussed in recent articles."
 [ ] Escape hatch (1 bullish): 1-2 sentences + "No additional upside catalysts discussed in recent articles."
 [ ] 100% attribution density
@@ -682,7 +682,7 @@ UPSIDE SCENARIO (check _signal_counts.bullish_count):
 [ ] source_articles contains only used bullet indices
 
 DOWNSIDE SCENARIO (check _signal_counts.bearish_count):
-[ ] 80-160 words (or escape hatch if _signal_counts.bearish_count = 0-1)
+[ ] 55-110 words (or escape hatch if _signal_counts.bearish_count = 0-1)
 [ ] Escape hatch (0 bearish): "No material downside risks discussed in recent articles."
 [ ] Escape hatch (1 bearish): 1-2 sentences + "No additional downside risks discussed in recent articles."
 [ ] 100% attribution density
@@ -690,7 +690,7 @@ DOWNSIDE SCENARIO (check _signal_counts.bearish_count):
 [ ] source_articles contains only used bullet indices
 
 CONTEXT (all 3):
-[ ] 50-75 words each (or escape hatch if no relevant context)
+[ ] 35-50 words each (or escape hatch if no relevant context)
 [ ] Escape hatch: "No relevant filing context found for this development"
 [ ] Quantified where possible (%, $, units)
 [ ] No forced/tangential context

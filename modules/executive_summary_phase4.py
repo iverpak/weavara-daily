@@ -420,11 +420,11 @@ def _parse_phase4_json_response(response_text: str, ticker: str) -> Optional[Dic
                 "date_range": ""
             }
 
-    # Word count limits per section
+    # Word count limits per section (Dec 2025: reduced 30% for tighter synthesis)
     word_limits = {
-        "phase4_bottom_line": {"max": 150, "min": 0, "name": "Bottom Line"},
-        "phase4_upside_scenario": {"max": 160, "min": 80, "name": "Upside Scenario"},
-        "phase4_downside_scenario": {"max": 160, "min": 80, "name": "Downside Scenario"}
+        "phase4_bottom_line": {"max": 100, "min": 0, "name": "Bottom Line"},
+        "phase4_upside_scenario": {"max": 110, "min": 55, "name": "Upside Scenario"},
+        "phase4_downside_scenario": {"max": 110, "min": 55, "name": "Downside Scenario"}
     }
 
     # Validate each section
