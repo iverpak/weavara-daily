@@ -26800,25 +26800,33 @@ def get_research_terminal_documents(ticker: str = Query(...), token: str = Query
 
 @APP.post("/api/admin/research-terminal-qa")
 async def research_terminal_qa(request: Request):
-    """Ask a question about research documents for a ticker using Gemini 2.5 Flash"""
+    """Ask a question about research documents for a ticker using Gemini 3.0 Flash or Claude Sonnet 4.5"""
     require_admin(request)
 
     try:
         body = await request.json()
         ticker = body.get("ticker", "").strip().upper()
         question = body.get("question", "").strip()
+        model = body.get("model", "gemini").strip().lower()
 
         if not ticker:
             return {"error": "Ticker is required"}
         if not question:
             return {"error": "Question is required"}
 
+        # Get API keys
         gemini_api_key = os.getenv("GEMINI_API_KEY")
-        if not gemini_api_key:
-            return {"error": "Gemini API key not configured"}
+        anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
 
         from modules.research_terminal import query_research_terminal
-        return query_research_terminal(ticker, question, db, gemini_api_key)
+        return query_research_terminal(
+            ticker,
+            question,
+            db,
+            gemini_api_key=gemini_api_key,
+            anthropic_api_key=anthropic_api_key,
+            model=model
+        )
 
     except Exception as e:
         LOG.error(f"Research terminal Q&A failed: {e}")

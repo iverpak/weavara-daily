@@ -2,7 +2,7 @@
 Research Terminal Module
 
 Interactive Q&A interface for querying saved research documents (10-K, 10-Q, Transcripts, 8-K)
-using Gemini 3.0 Flash Preview.
+using Gemini 3.0 Flash Preview or Claude Sonnet 4.5.
 
 Migration Notes (Dec 2025):
 - Upgraded from google-generativeai (legacy) to google-genai (new SDK)
@@ -10,6 +10,7 @@ Migration Notes (Dec 2025):
 - Temperature: 1.0 (required for Gemini 3.0 reasoning)
 - Thinking Level: HIGH (best accuracy for SEC filing analysis)
 - Implicit caching: Automatic after 2,048 token prefix match
+- Added Claude Sonnet 4.5 as alternative model (Dec 2025)
 
 Usage:
     from modules.research_terminal import query_research_terminal, get_available_tickers
@@ -17,19 +18,30 @@ Usage:
     # Get tickers with documents
     result = get_available_tickers(db_func)
 
-    # Query documents
-    result = query_research_terminal(ticker, question, db_func, gemini_api_key)
+    # Query documents (default: Gemini)
+    result = query_research_terminal(ticker, question, db_func, gemini_api_key=key)
+
+    # Query with Claude
+    result = query_research_terminal(ticker, question, db_func, anthropic_api_key=key, model="claude")
 """
 
 import os
+import time
 import logging
-from typing import Dict, List, Any, Callable
+import requests
+from typing import Dict, List, Any, Callable, Optional
 
 LOG = logging.getLogger(__name__)
 
 # Gemini 3.0 Flash Pricing (Dec 2025)
 GEMINI_3_INPUT_COST_PER_1M = 0.50   # $0.50 per 1M input tokens
 GEMINI_3_OUTPUT_COST_PER_1M = 3.00  # $3.00 per 1M output tokens (includes thinking tokens)
+
+# Claude Sonnet 4.5 Pricing (Dec 2025)
+CLAUDE_INPUT_COST_PER_1M = 3.00      # $3.00 per 1M input tokens
+CLAUDE_OUTPUT_COST_PER_1M = 15.00    # $15.00 per 1M output tokens
+CLAUDE_CACHE_WRITE_PER_1M = 3.75     # $3.75 per 1M cache write tokens
+CLAUDE_CACHE_READ_PER_1M = 0.30      # $0.30 per 1M cache read tokens (90% savings)
 
 # ------------------------------------------------------------------------------
 # PROMPT TEMPLATE
@@ -387,14 +399,15 @@ def build_documents_list(ticker: str, db_func: Callable) -> List[Dict[str, Any]]
 
 
 # ------------------------------------------------------------------------------
-# MAIN QUERY FUNCTION
+# GEMINI QUERY FUNCTION
 # ------------------------------------------------------------------------------
 
-def query_research_terminal(
+def _query_research_terminal_gemini(
     ticker: str,
     question: str,
     db_func: Callable,
-    gemini_api_key: str
+    gemini_api_key: str,
+    context: Dict[str, Any]
 ) -> Dict[str, Any]:
     """
     Query research documents for a ticker using Gemini 3.0 Flash Preview.
@@ -409,6 +422,7 @@ def query_research_terminal(
         question: User's question
         db_func: Database connection function
         gemini_api_key: Gemini API key
+        context: Pre-built context from build_research_context()
 
     Returns:
         Dict with:
@@ -417,16 +431,11 @@ def query_research_terminal(
             - input_tokens: Token count from API response
             - output_tokens: Token count from API response (includes thinking tokens)
             - cost: Estimated cost in USD
-            - cached: Whether implicit caching was used
+            - cached_tokens: Number of cached tokens
+            - model: Model identifier
             - error: Error message if failed (optional)
     """
-    # Build context
-    context = build_research_context(ticker, db_func)
-
-    if not context["context_parts"]:
-        return {"error": f"No research documents found for {ticker}"}
-
-    # Build full context string
+    # Use pre-built context
     full_context = "\n\n".join(context["context_parts"])
     sources_used = context["sources_used"]
 
@@ -529,6 +538,239 @@ def query_research_terminal(
         import traceback
         traceback.print_exc()
         return {"error": str(e)}
+
+
+# ------------------------------------------------------------------------------
+# CLAUDE QUERY FUNCTION
+# ------------------------------------------------------------------------------
+
+def _query_research_terminal_claude(
+    ticker: str,
+    question: str,
+    db_func: Callable,
+    anthropic_api_key: str,
+    context: Dict[str, Any]
+) -> Dict[str, Any]:
+    """
+    Query research documents for a ticker using Claude Sonnet 4.5.
+
+    Uses direct HTTP API with:
+    - Temperature 0.3 (slight creativity for Q&A)
+    - Prompt caching via cache_control: ephemeral
+    - Retry logic for transient errors
+
+    Args:
+        ticker: Stock ticker symbol
+        question: User's question
+        db_func: Database connection function
+        anthropic_api_key: Anthropic API key
+        context: Pre-built context from build_research_context()
+
+    Returns:
+        Dict with:
+            - answer: AI-generated answer (markdown)
+            - sources_used: List of sources cited
+            - input_tokens: Token count from API response
+            - output_tokens: Token count from API response
+            - cost: Estimated cost in USD
+            - cached_tokens: Number of cached tokens (cache_read_input_tokens)
+            - model: Model identifier
+            - error: Error message if failed (optional)
+    """
+    # Use pre-built context
+    full_context = "\n\n".join(context["context_parts"])
+    sources_used = context["sources_used"]
+
+    # Build the system prompt (cacheable)
+    system_prompt = RESEARCH_TERMINAL_SYSTEM_PROMPT.format(
+        ticker=ticker,
+        sources_list=', '.join(sources_used),
+        documents_context=full_context
+    )
+
+    # Build request
+    headers = {
+        "x-api-key": anthropic_api_key,
+        "anthropic-version": "2023-06-01",
+        "content-type": "application/json"
+    }
+
+    data = {
+        "model": "claude-sonnet-4-5-20250929",
+        "max_tokens": 16384,
+        "temperature": 0.3,  # Slight creativity for Q&A
+        "system": [
+            {
+                "type": "text",
+                "text": system_prompt,
+                "cache_control": {"type": "ephemeral"}  # Enable prompt caching
+            }
+        ],
+        "messages": [
+            {
+                "role": "user",
+                "content": f"Question: {question}"
+            }
+        ]
+    }
+
+    # Retry logic for transient errors
+    max_retries = 2
+    response = None
+    generation_time_ms = 0
+
+    for attempt in range(max_retries + 1):
+        try:
+            api_start_time = time.time()
+            response = requests.post(
+                "https://api.anthropic.com/v1/messages",
+                headers=headers,
+                json=data,
+                timeout=120  # 2 minutes
+            )
+            generation_time_ms = int((time.time() - api_start_time) * 1000)
+
+            # Success - break retry loop
+            if response.status_code == 200:
+                break
+
+            # Transient errors - retry
+            if response.status_code in [429, 500, 503, 529] and attempt < max_retries:
+                wait_time = 2 ** attempt
+                error_preview = response.text[:200] if response.text else "No details"
+                LOG.warning(f"[{ticker}] Research terminal Claude API error {response.status_code} (attempt {attempt + 1}/{max_retries + 1}): {error_preview}")
+                LOG.warning(f"[{ticker}] Retrying in {wait_time}s...")
+                time.sleep(wait_time)
+                continue
+
+            # Non-retryable error - break
+            break
+
+        except requests.exceptions.Timeout:
+            if attempt < max_retries:
+                wait_time = 2 ** attempt
+                LOG.warning(f"[{ticker}] Research terminal Claude timeout (attempt {attempt + 1}), retrying in {wait_time}s...")
+                time.sleep(wait_time)
+                continue
+            else:
+                LOG.error(f"[{ticker}] Research terminal Claude timeout after {max_retries + 1} attempts")
+                return {"error": "Request timed out. Please try again."}
+
+        except requests.exceptions.RequestException as e:
+            if attempt < max_retries:
+                wait_time = 2 ** attempt
+                LOG.warning(f"[{ticker}] Research terminal Claude network error (attempt {attempt + 1}): {e}, retrying...")
+                time.sleep(wait_time)
+                continue
+            else:
+                LOG.error(f"[{ticker}] Research terminal Claude network error after {max_retries + 1} attempts: {e}")
+                return {"error": f"Network error: {str(e)}"}
+
+    # Check response
+    if response is None:
+        LOG.error(f"[{ticker}] Research terminal Claude: No response after {max_retries + 1} attempts")
+        return {"error": "Failed to get response from Claude API"}
+
+    # Parse response
+    if response.status_code == 200:
+        result = response.json()
+        answer = result.get("content", [{}])[0].get("text", "")
+
+        # Get token counts
+        usage = result.get("usage", {})
+        input_tokens = usage.get("input_tokens", 0)
+        output_tokens = usage.get("output_tokens", 0)
+        cache_creation = usage.get("cache_creation_input_tokens", 0)
+        cache_read = usage.get("cache_read_input_tokens", 0)
+
+        # Calculate cost
+        input_cost = (input_tokens / 1_000_000) * CLAUDE_INPUT_COST_PER_1M
+        output_cost = (output_tokens / 1_000_000) * CLAUDE_OUTPUT_COST_PER_1M
+        cache_write_cost = (cache_creation / 1_000_000) * CLAUDE_CACHE_WRITE_PER_1M
+        cache_read_cost = (cache_read / 1_000_000) * CLAUDE_CACHE_READ_PER_1M
+        total_cost = input_cost + output_cost + cache_write_cost + cache_read_cost
+
+        LOG.info(f"[{ticker}] Research Terminal (Claude): {input_tokens} input ({cache_read} cached), {output_tokens} output, ${total_cost:.4f}, {generation_time_ms}ms")
+
+        return {
+            "answer": answer,
+            "sources_used": sources_used,
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "cached_tokens": cache_read,
+            "cost": total_cost,
+            "model": "claude-sonnet-4-5-20250929"
+        }
+
+    else:
+        # Error response
+        error_text = response.text[:500] if response.text else "No error details"
+        LOG.error(f"[{ticker}] Research terminal Claude API error {response.status_code}: {error_text}")
+
+        if response.status_code == 429:
+            return {"error": "Rate limit exceeded. Please wait a moment and try again."}
+        elif response.status_code in [500, 503]:
+            return {"error": "Claude API temporarily unavailable. Please try again later."}
+        else:
+            return {"error": f"API error ({response.status_code}): {error_text[:100]}"}
+
+
+# ------------------------------------------------------------------------------
+# MAIN QUERY FUNCTION (ROUTER)
+# ------------------------------------------------------------------------------
+
+def query_research_terminal(
+    ticker: str,
+    question: str,
+    db_func: Callable,
+    gemini_api_key: Optional[str] = None,
+    anthropic_api_key: Optional[str] = None,
+    model: str = "gemini"
+) -> Dict[str, Any]:
+    """
+    Query research documents for a ticker using the specified AI model.
+
+    Args:
+        ticker: Stock ticker symbol
+        question: User's question
+        db_func: Database connection function
+        gemini_api_key: Gemini API key (required if model="gemini")
+        anthropic_api_key: Anthropic API key (required if model="claude")
+        model: Model to use - "gemini" (default) or "claude"
+
+    Returns:
+        Dict with:
+            - answer: AI-generated answer (markdown)
+            - sources_used: List of sources cited
+            - input_tokens: Token count from API response
+            - output_tokens: Token count from API response
+            - cost: Estimated cost in USD
+            - cached_tokens: Number of cached tokens
+            - model: Model identifier
+            - error: Error message if failed (optional)
+    """
+    # Validate model choice
+    model = model.lower().strip()
+    if model not in ["gemini", "claude"]:
+        return {"error": f"Invalid model: {model}. Use 'gemini' or 'claude'."}
+
+    # Validate API key for selected model
+    if model == "gemini" and not gemini_api_key:
+        return {"error": "Gemini API key not configured"}
+    if model == "claude" and not anthropic_api_key:
+        return {"error": "Anthropic API key not configured"}
+
+    # Build context once (shared by both models)
+    context = build_research_context(ticker, db_func)
+
+    if not context["context_parts"]:
+        return {"error": f"No research documents found for {ticker}"}
+
+    # Route to appropriate model
+    if model == "claude":
+        return _query_research_terminal_claude(ticker, question, db_func, anthropic_api_key, context)
+    else:
+        return _query_research_terminal_gemini(ticker, question, db_func, gemini_api_key, context)
 
 
 # ------------------------------------------------------------------------------

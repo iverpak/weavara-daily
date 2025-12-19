@@ -307,6 +307,13 @@
         <div class="card">
             <h2>Ask a Question</h2>
             <div class="input-group">
+                <label for="model-select">AI Model</label>
+                <select id="model-select">
+                    <option value="gemini">Gemini 3.0 Flash (~$0.02/query)</option>
+                    <option value="claude">Claude Sonnet 4.5 (~$0.12/query)</option>
+                </select>
+            </div>
+            <div class="input-group">
                 <label for="question-input">Your Question</label>
                 <textarea id="question-input" placeholder="e.g., What are the top 3 risk factors mentioned in the 10-K?"></textarea>
             </div>
@@ -327,7 +334,7 @@
     </div>
 
     <div class="footer">
-        <p>Weavara Research Terminal | Powered by Gemini 3.0 Flash Preview</p>
+        <p>Weavara Research Terminal | Powered by Gemini 3.0 Flash & Claude Sonnet 4.5</p>
     </div>
 
     <!-- Markdown Parser -->
@@ -336,6 +343,7 @@
     <script>
         const token = '{{ token }}';
         const tickerSelect = document.getElementById('ticker-select');
+        const modelSelect = document.getElementById('model-select');
         const documentsContainer = document.getElementById('documents-container');
         const documentsList = document.getElementById('documents-list');
         const questionInput = document.getElementById('question-input');
@@ -458,12 +466,14 @@
         askBtn.addEventListener('click', async function() {
             const ticker = tickerSelect.value;
             const question = questionInput.value.trim();
+            const model = modelSelect.value;
 
             if (!ticker || !question) return;
 
             // Update UI
             askBtn.disabled = true;
-            askBtn.innerHTML = '<span class="loading"></span> Thinking...';
+            const modelLabel = model === 'claude' ? 'Claude' : 'Gemini';
+            askBtn.innerHTML = `<span class="loading"></span> ${modelLabel} thinking...`;
             errorContainer.innerHTML = '';
             answerBox.classList.remove('visible');
 
@@ -474,7 +484,7 @@
                         'Content-Type': 'application/json',
                         'X-Admin-Token': token
                     },
-                    body: JSON.stringify({ ticker, question })
+                    body: JSON.stringify({ ticker, question, model })
                 });
 
                 const data = await response.json();
