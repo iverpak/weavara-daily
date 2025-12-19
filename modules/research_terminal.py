@@ -62,6 +62,165 @@ DOCUMENTS:
 
 
 # ------------------------------------------------------------------------------
+# SNAPSHOT HELPER
+# ------------------------------------------------------------------------------
+
+def _fetch_snapshot(ticker: str, db_func: Callable) -> Dict[str, Any]:
+    """Fetch financial snapshot for a ticker from database."""
+    try:
+        with db_func() as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT ticker, company_name, snapshot_date, current_price, market_cap,
+                       shares_outstanding, ebitda_method, snapshot_json
+                FROM financial_snapshots
+                WHERE ticker = %s
+            """, (ticker,))
+            row = cur.fetchone()
+
+        if row:
+            return {
+                'ticker': row['ticker'],
+                'company_name': row['company_name'],
+                'snapshot_date': row['snapshot_date'],
+                'current_price': float(row['current_price']) if row['current_price'] else None,
+                'market_cap': row['market_cap'],
+                'shares_outstanding': row['shares_outstanding'],
+                'ebitda_method': row['ebitda_method'],
+                'snapshot_json': row['snapshot_json']
+            }
+        return None
+    except Exception as e:
+        LOG.warning(f"[{ticker}] Failed to fetch snapshot: {e}")
+        return None
+
+
+def _format_snapshot_for_context(snapshot: Dict) -> str:
+    """
+    Format snapshot data as readable text for Gemini context.
+
+    Returns a structured text summary of the financial snapshot.
+    """
+    if not snapshot or not snapshot.get('snapshot_json'):
+        return "No snapshot data available."
+
+    data = snapshot['snapshot_json']
+    lines = []
+
+    # Header info
+    company = data.get('company_name', snapshot.get('ticker', 'N/A'))
+    ticker = data.get('ticker', 'N/A')
+    sector = data.get('sector', 'N/A')
+    industry = data.get('industry', 'N/A')
+    price = data.get('current_price')
+    mcap = data.get('market_cap')
+    shares = data.get('shares_outstanding')
+
+    lines.append(f"COMPANY: {company} ({ticker})")
+    lines.append(f"Sector: {sector} | Industry: {industry}")
+
+    price_str = f"${price:.2f}" if price else 'N/A'
+    mcap_str = _format_large_num(mcap) if mcap else 'N/A'
+    shares_str = _format_large_num(shares) if shares else 'N/A'
+    lines.append(f"Current Price: {price_str} | Market Cap: {mcap_str} | Shares Outstanding: {shares_str}")
+    lines.append("")
+
+    # Get columns
+    annual_cols = data.get('columns', {}).get('annual', [])
+    quarterly_cols = data.get('columns', {}).get('quarterly', [])
+    metrics = data.get('metrics', {})
+
+    # Format metric data
+    metric_defs = [
+        ('INCOME STATEMENT', [
+            ('Sales', 'Sales ($M)', 'dollar'),
+            ('EBITDA', 'EBITDA ($M)', 'dollar'),
+            ('EBITDA Margin', 'EBITDA Margin (%)', 'percent'),
+            ('Revenue Y/Y', 'Revenue Y/Y (%)', 'percent'),
+            ('EPS', 'EPS (Diluted)', 'eps'),
+        ]),
+        ('CASH FLOW', [
+            ('OCF', 'Operating CF ($M)', 'dollar'),
+            ('Free Cash Flow', 'Free Cash Flow ($M)', 'dollar'),
+        ]),
+        ('BALANCE SHEET', [
+            ('Gross Debt', 'Gross Debt ($M)', 'dollar'),
+            ('Cash', 'Cash ($M)', 'dollar'),
+            ('Net Debt', 'Net Debt ($M)', 'dollar'),
+            ('Net Leverage', 'Net Leverage (x)', 'multiple'),
+        ]),
+        ('VALUATION', [
+            ('EV/EBITDA', 'EV/EBITDA (x)', 'multiple'),
+            ('P/S', 'P/S (x)', 'multiple'),
+            ('FCF Yield', 'FCF Yield (%)', 'percent'),
+        ]),
+    ]
+
+    # Annual data
+    if annual_cols:
+        lines.append("ANNUAL DATA:")
+        header = "Metric".ljust(25) + "".join(str(y).rjust(12) for y in annual_cols)
+        lines.append(header)
+        lines.append("-" * len(header))
+
+        for section_name, section_metrics in metric_defs:
+            for key, label, fmt in section_metrics:
+                m = metrics.get(key, {})
+                annual_vals = m.get('annual', [])
+                vals_str = "".join(_fmt_val(v, fmt).rjust(12) for v in annual_vals[:len(annual_cols)])
+                lines.append(f"{label.ljust(25)}{vals_str}")
+        lines.append("")
+
+    # Quarterly data (just show key metrics)
+    if quarterly_cols:
+        lines.append("QUARTERLY DATA (Recent 4 Quarters):")
+        recent_quarters = quarterly_cols[-4:] if len(quarterly_cols) >= 4 else quarterly_cols
+        header = "Metric".ljust(25) + "".join(q.rjust(12) for q in recent_quarters)
+        lines.append(header)
+        lines.append("-" * len(header))
+
+        key_metrics = [('Sales', 'Sales ($M)', 'dollar'), ('EBITDA', 'EBITDA ($M)', 'dollar'), ('EPS', 'EPS', 'eps')]
+        for key, label, fmt in key_metrics:
+            m = metrics.get(key, {})
+            quarterly_vals = m.get('quarterly', [])
+            recent_vals = quarterly_vals[-4:] if len(quarterly_vals) >= 4 else quarterly_vals
+            vals_str = "".join(_fmt_val(v, fmt).rjust(12) for v in recent_vals)
+            lines.append(f"{label.ljust(25)}{vals_str}")
+
+    return "\n".join(lines)
+
+
+def _format_large_num(value) -> str:
+    """Format large numbers with T/B/M suffix."""
+    if value is None:
+        return 'N/A'
+    if value >= 1e12:
+        return f"${value / 1e12:.2f}T"
+    elif value >= 1e9:
+        return f"${value / 1e9:.1f}B"
+    elif value >= 1e6:
+        return f"${value / 1e6:.0f}M"
+    return f"${value:,.0f}"
+
+
+def _fmt_val(value, fmt: str) -> str:
+    """Format a metric value for text display."""
+    if value is None:
+        return '—'
+    try:
+        if fmt == 'dollar':
+            return f"${value:,.0f}"
+        elif fmt == 'percent':
+            return f"{value:.1f}%"
+        elif fmt == 'multiple':
+            return f"{value:.1f}x"
+        elif fmt == 'eps':
+            return f"${value:.2f}"
+        return str(value)
+    except (ValueError, TypeError):
+        return '—'
+
+
+# ------------------------------------------------------------------------------
 # CONTEXT BUILDING
 # ------------------------------------------------------------------------------
 
@@ -70,6 +229,7 @@ def build_research_context(ticker: str, db_func: Callable) -> Dict[str, Any]:
     Build context from available research documents for a ticker.
 
     Uses the same _fetch_available_filings() function as Phase 2 for consistency.
+    Also fetches financial snapshot if available.
 
     Args:
         ticker: Stock ticker symbol
@@ -79,11 +239,16 @@ def build_research_context(ticker: str, db_func: Callable) -> Dict[str, Any]:
         Dict with:
             - context_parts: List of formatted document sections
             - sources_used: List of source titles for citation
-            - filings: Raw filings dict from Phase 2
+            - filings: Raw filings dict from Phase 2 (plus snapshot)
     """
     from modules.executive_summary_phase2 import _fetch_available_filings
 
     filings = _fetch_available_filings(ticker, db_func)
+
+    # Also fetch snapshot (separate from Phase 2 filings)
+    snapshot = _fetch_snapshot(ticker, db_func)
+    if snapshot:
+        filings['snapshot'] = snapshot
 
     if not filings:
         return {
@@ -123,6 +288,17 @@ def build_research_context(ticker: str, db_func: Callable) -> Dict[str, Any]:
                 context_parts.append(f"=== {title} ===\n{eight_k['summary_markdown']}")
                 sources_used.append(title)
 
+    # Financial Snapshot
+    if 'snapshot' in filings and filings['snapshot']:
+        snapshot = filings['snapshot']
+        snapshot_date = snapshot.get('snapshot_date')
+        date_str = snapshot_date.strftime('%b %d, %Y') if hasattr(snapshot_date, 'strftime') else str(snapshot_date)
+        title = f"Financial Snapshot ({date_str})"
+        # Format snapshot data as readable text for Gemini
+        snapshot_text = _format_snapshot_for_context(snapshot)
+        context_parts.append(f"=== {title} ===\n{snapshot_text}")
+        sources_used.append(title)
+
     return {
         "context_parts": context_parts,
         "sources_used": sources_used,
@@ -135,6 +311,7 @@ def build_documents_list(ticker: str, db_func: Callable) -> List[Dict[str, Any]]
     Build list of available documents for UI display.
 
     Uses the same _fetch_available_filings() function as Phase 2 for consistency.
+    Also fetches financial snapshot if available.
 
     Args:
         ticker: Stock ticker symbol
@@ -146,6 +323,12 @@ def build_documents_list(ticker: str, db_func: Callable) -> List[Dict[str, Any]]
     from modules.executive_summary_phase2 import _fetch_available_filings
 
     filings = _fetch_available_filings(ticker, db_func)
+
+    # Also fetch snapshot (separate from Phase 2 filings)
+    snapshot = _fetch_snapshot(ticker, db_func)
+    if snapshot:
+        filings['snapshot'] = snapshot
+
     docs = []
 
     # 10-K
@@ -189,6 +372,16 @@ def build_documents_list(ticker: str, db_func: Callable) -> List[Dict[str, Any]]
                 'date': date_str,
                 'item_codes': eight_k.get('item_codes')
             })
+
+    # Financial Snapshot
+    if 'snapshot' in filings and filings['snapshot']:
+        snapshot_date = filings['snapshot'].get('snapshot_date')
+        date_str = snapshot_date.strftime('%b %d, %Y') if hasattr(snapshot_date, 'strftime') else str(snapshot_date) if snapshot_date else 'N/A'
+        docs.append({
+            'type': 'Snapshot',
+            'description': f"Financial Snapshot ({date_str})",
+            'date': date_str
+        })
 
     return docs
 
@@ -358,7 +551,7 @@ def get_available_tickers(db_func: Callable) -> Dict[str, Any]:
     """
     try:
         with db_func() as conn, conn.cursor() as cur:
-            # Get all tickers with documents from any of the 4 sources
+            # Get all tickers with documents from any of the 5 sources
             cur.execute("""
                 SELECT DISTINCT ticker FROM (
                     SELECT ticker FROM sec_filings WHERE filing_type IN ('10-K', '10-Q')
@@ -366,6 +559,8 @@ def get_available_tickers(db_func: Callable) -> Dict[str, Any]:
                     SELECT ticker FROM transcript_summaries WHERE report_type = 'transcript'
                     UNION
                     SELECT ticker FROM company_releases WHERE source_type = '8k_exhibit'
+                    UNION
+                    SELECT ticker FROM financial_snapshots
                 ) AS all_tickers
                 ORDER BY ticker
             """)

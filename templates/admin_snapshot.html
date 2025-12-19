@@ -398,6 +398,11 @@
                         <span class="meta-label">Shares Out:</span>
                         <span class="meta-value" id="company-shares">15.0B</span>
                     </div>
+                    <div class="meta-item" style="margin-left: auto;">
+                        <button id="save-btn" onclick="saveSnapshot()" style="background: #10b981; padding: 8px 16px; font-size: 13px;">
+                            💾 Save Snapshot
+                        </button>
+                    </div>
                 </div>
             </div>
 
@@ -620,6 +625,9 @@
             table.innerHTML = headerHtml + bodyHtml;
         }
 
+        // Store current snapshot data for saving
+        let currentSnapshotData = null;
+
         async function generateSnapshot() {
             const ticker = document.getElementById('ticker-input').value.trim().toUpperCase();
             if (!ticker) {
@@ -630,6 +638,13 @@
             const btn = document.getElementById('generate-btn');
             const errorDiv = document.getElementById('error-message');
             const resultsDiv = document.getElementById('results-container');
+            const saveBtn = document.getElementById('save-btn');
+
+            // Reset save button state
+            saveBtn.innerHTML = '💾 Save Snapshot';
+            saveBtn.style.background = '#10b981';
+            saveBtn.disabled = false;
+            currentSnapshotData = null;
 
             // Reset state
             errorDiv.style.display = 'none';
@@ -656,6 +671,9 @@
                     ? `$${result.current_price.toFixed(2)}` : 'N/A';
                 document.getElementById('company-mcap').textContent = formatMarketCap(result.market_cap);
                 document.getElementById('company-shares').textContent = formatSharesOutstanding(result.shares_outstanding);
+
+                // Store result for saving
+                currentSnapshotData = result;
 
                 // Build financial table
                 buildTable(result);
@@ -686,6 +704,42 @@
             const errorDiv = document.getElementById('error-message');
             errorDiv.textContent = message;
             errorDiv.style.display = 'block';
+        }
+
+        async function saveSnapshot() {
+            if (!currentSnapshotData) {
+                alert('No snapshot data to save. Please generate a snapshot first.');
+                return;
+            }
+
+            const saveBtn = document.getElementById('save-btn');
+            saveBtn.disabled = true;
+            saveBtn.innerHTML = '⏳ Saving...';
+
+            try {
+                const response = await fetch(`/api/admin/save-snapshot?token=${TOKEN}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(currentSnapshotData)
+                });
+
+                const result = await response.json();
+
+                if (!response.ok) {
+                    throw new Error(result.detail || result.error || 'Failed to save snapshot');
+                }
+
+                // Success - update button state
+                saveBtn.innerHTML = '✓ Saved';
+                saveBtn.style.background = '#6b7280';
+                // Keep button disabled after successful save
+
+            } catch (error) {
+                alert('Failed to save: ' + error.message);
+                saveBtn.disabled = false;
+                saveBtn.innerHTML = '💾 Save Snapshot';
+                saveBtn.style.background = '#10b981';
+            }
         }
 
         // Focus input on page load

@@ -813,3 +813,239 @@ class FinancialSnapshotAnalyzer:
                 result['Dividend Yield'].append(None)
 
         return result
+
+
+# ------------------------------------------------------------------------------
+# EMAIL FORMATTING
+# ------------------------------------------------------------------------------
+
+def format_snapshot_as_html_email(snapshot_data: Dict, snapshot_date) -> str:
+    """
+    Format a financial snapshot as an HTML email matching the admin page styling.
+
+    Args:
+        snapshot_data: Full snapshot JSON from database
+        snapshot_date: Date the snapshot was saved
+
+    Returns:
+        HTML string for email
+    """
+    ticker = snapshot_data.get('ticker', 'N/A')
+    company_name = snapshot_data.get('company_name', ticker)
+    sector = snapshot_data.get('sector', 'N/A')
+    industry = snapshot_data.get('industry', 'N/A')
+    current_price = snapshot_data.get('current_price')
+    market_cap = snapshot_data.get('market_cap')
+    shares_outstanding = snapshot_data.get('shares_outstanding')
+    ebitda_method = snapshot_data.get('ebitda_method', 'N/A')
+
+    # Format header values
+    price_str = f"${current_price:.2f}" if current_price else 'N/A'
+    mcap_str = _format_large_number(market_cap, prefix='$') if market_cap else 'N/A'
+    shares_str = _format_large_number(shares_outstanding) if shares_outstanding else 'N/A'
+    date_str = snapshot_date.strftime('%B %d, %Y') if snapshot_date else 'N/A'
+
+    # Get columns
+    annual_cols = snapshot_data.get('columns', {}).get('annual', [])
+    quarterly_cols = snapshot_data.get('columns', {}).get('quarterly', [])
+    metrics = snapshot_data.get('metrics', {})
+
+    # Build HTML
+    html = f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <style>
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; margin: 0; padding: 20px; background: #f8f9fa; }}
+        .container {{ max-width: 1200px; margin: 0 auto; background: white; border-radius: 8px; overflow: hidden; }}
+        .header {{ background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%); color: white; padding: 24px; }}
+        .header h1 {{ margin: 0 0 8px 0; font-size: 24px; }}
+        .header .meta {{ display: flex; flex-wrap: wrap; gap: 20px; font-size: 14px; opacity: 0.95; }}
+        .header .meta-item {{ display: flex; gap: 6px; }}
+        .header .meta-label {{ opacity: 0.8; }}
+        .header .meta-value {{ font-weight: 600; }}
+        .content {{ padding: 24px; }}
+        .table-container {{ overflow-x: auto; }}
+        table {{ width: 100%; border-collapse: collapse; font-size: 12px; }}
+        th {{ background: #1e40af; color: white; padding: 10px 8px; text-align: right; font-weight: 600; white-space: nowrap; }}
+        th:first-child {{ text-align: left; position: sticky; left: 0; background: #1e40af; }}
+        td {{ padding: 8px; text-align: right; border-bottom: 1px solid #e5e7eb; white-space: nowrap; }}
+        td:first-child {{ text-align: left; font-weight: 600; color: #374151; background: #f9fafb; position: sticky; left: 0; }}
+        .section-header {{ background: #f0f7ff; font-weight: 700; color: #1e40af; }}
+        .section-header td {{ border-top: 2px solid #1e40af; }}
+        .negative {{ color: #dc2626; }}
+        .footer {{ padding: 16px 24px; background: #f9fafb; font-size: 12px; color: #6b7280; border-top: 1px solid #e5e7eb; }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>{company_name} ({ticker})</h1>
+            <div class="meta">
+                <div class="meta-item"><span class="meta-label">Sector:</span><span class="meta-value">{sector}</span></div>
+                <div class="meta-item"><span class="meta-label">Industry:</span><span class="meta-value">{industry}</span></div>
+                <div class="meta-item"><span class="meta-label">Price:</span><span class="meta-value">{price_str}</span></div>
+                <div class="meta-item"><span class="meta-label">Market Cap:</span><span class="meta-value">{mcap_str}</span></div>
+                <div class="meta-item"><span class="meta-label">Shares Out:</span><span class="meta-value">{shares_str}</span></div>
+            </div>
+        </div>
+        <div class="content">
+            <p style="color: #6b7280; font-size: 13px; margin: 0 0 16px 0;">
+                Snapshot Date: {date_str} | All dollar amounts in millions USD
+            </p>
+            <div class="table-container">
+                <table>
+                    <thead>
+                        <tr>
+                            <th>Metric</th>
+"""
+
+    # Add annual column headers
+    for year in annual_cols:
+        html += f"<th>{year}</th>"
+
+    # Add separator
+    html += "<th style='background: #374151;'></th>"
+
+    # Add quarterly column headers
+    for quarter in quarterly_cols:
+        html += f"<th>{quarter}</th>"
+
+    html += """
+                        </tr>
+                    </thead>
+                    <tbody>
+"""
+
+    # Define metrics with sections
+    metric_sections = [
+        ('Income Statement', [
+            ('Sales', 'Sales', 'dollar'),
+            ('EBITDA', 'EBITDA', 'dollar'),
+            ('EBITDA Margin', 'EBITDA Margin', 'percent'),
+            ('Revenue Y/Y', 'Revenue Y/Y', 'percent'),
+            ('EBITDA Y/Y', 'EBITDA Y/Y', 'percent'),
+            ('EPS', 'EPS (Diluted)', 'eps'),
+            ('Shares Outstanding', 'Shares Out (Diluted)', 'shares'),
+        ]),
+        ('Cash Flow', [
+            ('OCF', 'Operating Cash Flow', 'dollar'),
+            ('CapEx', 'CapEx', 'dollar'),
+            ('Free Cash Flow', 'Free Cash Flow', 'dollar'),
+        ]),
+        ('Balance Sheet', [
+            ('Gross Debt', 'Gross Debt', 'dollar'),
+            ('Cash', 'Cash', 'dollar'),
+            ('Net Debt', 'Net Debt', 'dollar'),
+            ('Net Leverage', 'Net Leverage', 'multiple'),
+        ]),
+        ('Valuation', [
+            ('Market Cap', 'Market Cap', 'dollar'),
+            ('EV', 'Enterprise Value', 'dollar'),
+            ('EV/EBITDA', 'EV/EBITDA', 'multiple'),
+            ('P/S', 'P/S', 'multiple'),
+            ('FCF Yield', 'FCF Yield', 'percent'),
+            ('Dividend Yield', 'Dividend Yield', 'percent'),
+        ]),
+    ]
+
+    for section_name, section_metrics in metric_sections:
+        # Section header row
+        total_cols = len(annual_cols) + len(quarterly_cols) + 2  # +2 for metric name and separator
+        html += f'<tr class="section-header"><td colspan="{total_cols}">{section_name}</td></tr>'
+
+        for metric_key, metric_label, metric_format in section_metrics:
+            metric_data = metrics.get(metric_key, {})
+            annual_values = metric_data.get('annual', [])
+            quarterly_values = metric_data.get('quarterly', [])
+
+            html += f"<tr><td>{metric_label}</td>"
+
+            # Annual values
+            for i, val in enumerate(annual_values):
+                formatted = _format_metric_value(val, metric_format)
+                is_negative = val is not None and val < 0
+                css_class = 'negative' if is_negative else ''
+                html += f'<td class="{css_class}">{formatted}</td>'
+
+            # Pad if needed
+            for _ in range(len(annual_cols) - len(annual_values)):
+                html += "<td>—</td>"
+
+            # Separator
+            html += "<td style='background: #e5e7eb;'></td>"
+
+            # Quarterly values
+            for i, val in enumerate(quarterly_values):
+                formatted = _format_metric_value(val, metric_format)
+                is_negative = val is not None and val < 0
+                css_class = 'negative' if is_negative else ''
+                html += f'<td class="{css_class}">{formatted}</td>'
+
+            # Pad if needed
+            for _ in range(len(quarterly_cols) - len(quarterly_values)):
+                html += "<td>—</td>"
+
+            html += "</tr>"
+
+    html += f"""
+                    </tbody>
+                </table>
+            </div>
+            <p style="margin-top: 16px; font-size: 12px; color: #6b7280;">
+                <strong>EBITDA Method:</strong> {ebitda_method}
+            </p>
+        </div>
+        <div class="footer">
+            <p>Data source: Financial Modeling Prep API | Generated by Weavara</p>
+            <p style="margin-top: 8px;">For informational purposes only. Not investment advice.</p>
+        </div>
+    </div>
+</body>
+</html>
+"""
+
+    return html
+
+
+def _format_large_number(value, prefix: str = '') -> str:
+    """Format large numbers with T/B/M suffix."""
+    if value is None:
+        return 'N/A'
+    if value >= 1e12:
+        return f"{prefix}{value / 1e12:.2f}T"
+    elif value >= 1e9:
+        return f"{prefix}{value / 1e9:.1f}B"
+    elif value >= 1e6:
+        return f"{prefix}{value / 1e6:.0f}M"
+    return f"{prefix}{value:,.0f}"
+
+
+def _format_metric_value(value, format_type: str) -> str:
+    """Format a metric value based on its type."""
+    if value is None:
+        return '—'
+
+    is_negative = value < 0
+    abs_val = abs(value)
+
+    if format_type == 'dollar':
+        formatted = f"${abs_val:,.0f}"
+    elif format_type == 'percent':
+        formatted = f"{abs_val:.1f}%"
+    elif format_type == 'multiple':
+        formatted = f"{abs_val:.1f}x"
+    elif format_type == 'eps':
+        formatted = f"${abs_val:.2f}"
+    elif format_type == 'shares':
+        if abs_val >= 1000:
+            formatted = f"{abs_val / 1000:.1f}B"
+        else:
+            formatted = f"{abs_val:.0f}M"
+    else:
+        formatted = str(value)
+
+    if is_negative:
+        return f"({formatted})"
+    return formatted

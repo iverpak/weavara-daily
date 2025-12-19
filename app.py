@@ -2428,6 +2428,28 @@ def ensure_schema():
                 ON CONFLICT (day_of_week) DO NOTHING;
 
                 CREATE INDEX IF NOT EXISTS idx_schedule_config_day ON schedule_config(day_of_week);
+
+                -- ============================================================
+                -- FINANCIAL SNAPSHOTS (Dec 2025)
+                -- Stores saved financial snapshots for Research Terminal
+                -- ============================================================
+
+                CREATE TABLE IF NOT EXISTS financial_snapshots (
+                    id SERIAL PRIMARY KEY,
+                    ticker VARCHAR(20) NOT NULL UNIQUE,  -- Only 1 snapshot per ticker
+                    company_name VARCHAR(255),
+                    sector VARCHAR(100),
+                    industry VARCHAR(100),
+                    snapshot_date DATE NOT NULL,
+                    current_price DECIMAL(12, 2),
+                    market_cap BIGINT,
+                    shares_outstanding BIGINT,
+                    ebitda_method VARCHAR(50),
+                    snapshot_json JSONB NOT NULL,        -- Full metrics data
+                    generated_at TIMESTAMPTZ DEFAULT NOW()
+                );
+
+                CREATE INDEX IF NOT EXISTS idx_financial_snapshots_ticker ON financial_snapshots(ticker);
                 """)
 
                 LOG.info("✅ Complete database schema created successfully with NEW ARCHITECTURE + JOB QUEUE + BETA USERS + DAILY/WEEKLY REPORTS + SCHEDULER")
@@ -26362,6 +26384,224 @@ def api_get_financial_snapshot(ticker: str, token: str = Query(...)):
     except Exception as e:
         LOG.exception(f"[SNAPSHOT] Unexpected error for {ticker}: {e}")
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+
+
+@APP.post("/api/admin/save-snapshot")
+async def api_save_financial_snapshot(request: Request, token: str = Query(...)):
+    """
+    Save or update a financial snapshot for a ticker (UPSERT).
+    Only keeps 1 snapshot per ticker - overwrites existing.
+    """
+    if not check_admin_token(token):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    try:
+        data = await request.json()
+        ticker = data.get('ticker', '').upper()
+
+        if not ticker:
+            raise HTTPException(status_code=400, detail="Ticker is required")
+
+        with db() as conn, conn.cursor() as cur:
+            cur.execute("""
+                INSERT INTO financial_snapshots (
+                    ticker, company_name, sector, industry, snapshot_date,
+                    current_price, market_cap, shares_outstanding, ebitda_method, snapshot_json
+                )
+                VALUES (%s, %s, %s, %s, CURRENT_DATE, %s, %s, %s, %s, %s)
+                ON CONFLICT (ticker) DO UPDATE SET
+                    company_name = EXCLUDED.company_name,
+                    sector = EXCLUDED.sector,
+                    industry = EXCLUDED.industry,
+                    snapshot_date = CURRENT_DATE,
+                    current_price = EXCLUDED.current_price,
+                    market_cap = EXCLUDED.market_cap,
+                    shares_outstanding = EXCLUDED.shares_outstanding,
+                    ebitda_method = EXCLUDED.ebitda_method,
+                    snapshot_json = EXCLUDED.snapshot_json,
+                    generated_at = NOW()
+            """, (
+                ticker,
+                data.get('company_name'),
+                data.get('sector'),
+                data.get('industry'),
+                data.get('current_price'),
+                data.get('market_cap'),
+                data.get('shares_outstanding'),
+                data.get('ebitda_method'),
+                json.dumps(data)
+            ))
+            conn.commit()
+
+        LOG.info(f"[SNAPSHOT] Saved financial snapshot for {ticker}")
+        return {"status": "success", "ticker": ticker, "message": "Snapshot saved"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        LOG.exception(f"[SNAPSHOT] Failed to save snapshot: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@APP.get("/api/admin/get-snapshots")
+def api_get_all_snapshots(token: str = Query(...)):
+    """Get all saved financial snapshots for Research Library display."""
+    if not check_admin_token(token):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    try:
+        with db() as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT ticker, company_name, sector, industry, snapshot_date,
+                       current_price, market_cap, shares_outstanding, ebitda_method,
+                       generated_at
+                FROM financial_snapshots
+                ORDER BY ticker
+            """)
+            rows = cur.fetchall()
+
+        snapshots = []
+        for row in rows:
+            snapshots.append({
+                'ticker': row['ticker'],
+                'company_name': row['company_name'],
+                'sector': row['sector'],
+                'industry': row['industry'],
+                'snapshot_date': row['snapshot_date'].isoformat() if row['snapshot_date'] else None,
+                'current_price': float(row['current_price']) if row['current_price'] else None,
+                'market_cap': row['market_cap'],
+                'shares_outstanding': row['shares_outstanding'],
+                'ebitda_method': row['ebitda_method'],
+                'generated_at': row['generated_at'].isoformat() if row['generated_at'] else None
+            })
+
+        return {"snapshots": snapshots}
+
+    except Exception as e:
+        LOG.exception(f"[SNAPSHOT] Failed to get snapshots: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@APP.get("/api/admin/get-snapshot/{ticker}")
+def api_get_snapshot_by_ticker(ticker: str, token: str = Query(...)):
+    """Get a single financial snapshot by ticker (full JSON for modal view)."""
+    if not check_admin_token(token):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    ticker = ticker.upper()
+
+    try:
+        with db() as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT snapshot_json, snapshot_date, generated_at
+                FROM financial_snapshots
+                WHERE ticker = %s
+            """, (ticker,))
+            row = cur.fetchone()
+
+        if not row:
+            raise HTTPException(status_code=404, detail=f"No snapshot found for {ticker}")
+
+        snapshot_data = row['snapshot_json']
+        snapshot_data['snapshot_date'] = row['snapshot_date'].isoformat() if row['snapshot_date'] else None
+        snapshot_data['saved_at'] = row['generated_at'].isoformat() if row['generated_at'] else None
+
+        return snapshot_data
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        LOG.exception(f"[SNAPSHOT] Failed to get snapshot for {ticker}: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@APP.post("/api/admin/delete-snapshot")
+async def api_delete_snapshot(request: Request):
+    """Delete a financial snapshot by ticker."""
+    try:
+        body = await request.json()
+        token = body.get('token')
+        ticker = body.get('ticker', '').upper()
+
+        if not check_admin_token(token):
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
+        if not ticker:
+            raise HTTPException(status_code=400, detail="Ticker is required")
+
+        with db() as conn, conn.cursor() as cur:
+            cur.execute("DELETE FROM financial_snapshots WHERE ticker = %s", (ticker,))
+            deleted = cur.rowcount
+            conn.commit()
+
+        if deleted == 0:
+            raise HTTPException(status_code=404, detail=f"No snapshot found for {ticker}")
+
+        LOG.info(f"[SNAPSHOT] Deleted financial snapshot for {ticker}")
+        return {"status": "success", "ticker": ticker, "message": "Snapshot deleted"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        LOG.exception(f"[SNAPSHOT] Failed to delete snapshot: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@APP.post("/api/admin/email-snapshot")
+async def api_email_snapshot(request: Request):
+    """Email a financial snapshot to admin."""
+    try:
+        body = await request.json()
+        token = body.get('token')
+        ticker = body.get('ticker', '').upper()
+
+        if not check_admin_token(token):
+            raise HTTPException(status_code=401, detail="Unauthorized")
+
+        if not ticker:
+            raise HTTPException(status_code=400, detail="Ticker is required")
+
+        # Get snapshot from database
+        with db() as conn, conn.cursor() as cur:
+            cur.execute("""
+                SELECT snapshot_json, snapshot_date, company_name
+                FROM financial_snapshots
+                WHERE ticker = %s
+            """, (ticker,))
+            row = cur.fetchone()
+
+        if not row:
+            raise HTTPException(status_code=404, detail=f"No snapshot found for {ticker}")
+
+        snapshot_data = row['snapshot_json']
+        snapshot_date = row['snapshot_date']
+        company_name = row['company_name'] or ticker
+
+        # Generate HTML email using snapshot page template
+        from modules.financial_snapshot import format_snapshot_as_html_email
+        html_content = format_snapshot_as_html_email(snapshot_data, snapshot_date)
+
+        # Send email
+        admin_email = os.getenv("ADMIN_EMAIL")
+        if not admin_email:
+            raise HTTPException(status_code=500, detail="ADMIN_EMAIL not configured")
+
+        subject = f"[INTERNAL] {ticker} Financial Snapshot ({snapshot_date.strftime('%b %d, %Y') if snapshot_date else 'N/A'})"
+
+        send_email(
+            to_email=admin_email,
+            subject=subject,
+            html_content=html_content
+        )
+
+        LOG.info(f"[SNAPSHOT] Emailed financial snapshot for {ticker} to {admin_email}")
+        return {"status": "success", "ticker": ticker, "message": "Snapshot emailed"}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        LOG.exception(f"[SNAPSHOT] Failed to email snapshot: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ------------------------------------------------------------------------------
