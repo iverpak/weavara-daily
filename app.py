@@ -26475,7 +26475,7 @@ def api_get_all_snapshots(token: str = Query(...)):
                 'generated_at': row['generated_at'].isoformat() if row['generated_at'] else None
             })
 
-        return {"snapshots": snapshots}
+        return {"status": "success", "snapshots": snapshots}
 
     except Exception as e:
         LOG.exception(f"[SNAPSHOT] Failed to get snapshots: {e}")
