@@ -626,7 +626,7 @@ def _query_research_terminal_claude(
                 "https://api.anthropic.com/v1/messages",
                 headers=headers,
                 json=data,
-                timeout=120  # 2 minutes
+                timeout=240  # 4 minutes (large context can be slow)
             )
             generation_time_ms = int((time.time() - api_start_time) * 1000)
 
