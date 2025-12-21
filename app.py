@@ -16211,15 +16211,17 @@ def generate_email_html_core(
         used_article_indices = None  # No filtering (backward compat - show all)
 
     # NEW (Nov 2025): Filter sections based on report_type
+    # Both daily and weekly hide these 3 sections (AI still generates them, just don't display)
+    sections.pop('upside_scenario', None)
+    sections.pop('downside_scenario', None)
+    sections.pop('key_variables', None)
+
     if report_type == 'daily':
-        # Daily reports hide 4 sections (AI still generates them, just don't display)
-        sections.pop('upside_scenario', None)
-        sections.pop('downside_scenario', None)
-        sections.pop('key_variables', None)
+        # Daily also hides upcoming_catalysts
         sections.pop('upcoming_catalysts', None)
         LOG.info(f"[{ticker}] Daily report: Filtered to {len(sections)} sections (hid upside/downside/variables/catalysts)")
     else:
-        LOG.info(f"[{ticker}] Weekly report: Showing all {len(sections)} sections")
+        LOG.info(f"[{ticker}] Weekly report: Filtered to {len(sections)} sections (hid upside/downside/variables, kept catalysts)")
 
     # Extract preheader text from bottom_line (full content for email preview)
     # Bottom line is already curated to be 1-2 sentences - use it all

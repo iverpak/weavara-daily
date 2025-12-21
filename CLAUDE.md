@@ -106,29 +106,30 @@ Name: Export Users          | Schedule: 59 4 * * *          | Command: python ap
 - Unique unsubscribe tokens per recipient
 - DRY_RUN mode for safe testing
 
-**Daily vs Weekly Reports (NEW - November 2025):**
+**Daily vs Weekly Reports (UPDATED - December 2025):**
 
 The system automatically generates different report types based on day of week:
 
 **Schedule Logic:**
-- **Monday:** Weekly reports (7-day lookback, full 6-section summary)
-- **Tuesday-Sunday:** Daily reports (1-day lookback, abbreviated 2-section summary)
+- **Monday:** Weekly reports (7-day lookback)
+- **Tuesday-Sunday:** Daily reports (1-day lookback)
 
 **Report Type Differences:**
 
 | Feature | Daily (Tue-Sun) | Weekly (Mon) |
 |---------|-----------------|--------------|
 | **Lookback Window** | 1440 minutes (1 day) | 10080 minutes (7 days) |
-| **Sections Shown** | 2 sections | 6 sections |
+| **Sections Shown** | 6 sections | 7 sections |
 | **Bottom Line** | ✅ Shown | ✅ Shown |
+| **Major Developments** | ✅ Shown | ✅ Shown |
 | **Financial/Operational** | ✅ Shown | ✅ Shown |
-| **Risk Factors** | ❌ Hidden | ✅ Shown |
-| **Wall Street Sentiment** | ❌ Hidden | ✅ Shown |
-| **Upside Scenario** | ❌ Hidden | ✅ Shown |
-| **Downside Scenario** | ❌ Hidden | ✅ Shown |
-| **Competitive/Industry** | ❌ Hidden | ✅ Shown |
-| **Key Variables** | ❌ Hidden | ✅ Shown |
+| **Risk Factors** | ✅ Shown | ✅ Shown |
+| **Wall Street Sentiment** | ✅ Shown | ✅ Shown |
+| **Competitive/Industry** | ✅ Shown | ✅ Shown |
 | **Upcoming Catalysts** | ❌ Hidden | ✅ Shown |
+| **Upside Scenario** | ❌ Hidden | ❌ Hidden |
+| **Downside Scenario** | ❌ Hidden | ❌ Hidden |
+| **Key Variables** | ❌ Hidden | ❌ Hidden |
 
 **Configuration:**
 - Lookback windows stored in `system_config` table:
@@ -2050,8 +2051,9 @@ python app.py check_filings
   - Queries `system_config` table for lookback windows
 - `generate_email_html_core()` - Line 18601 (Email #3 generation with section filtering)
   - Parameter: `report_type` ('daily' or 'weekly')
-  - Daily reports: Hide 4 sections (upside_scenario, downside_scenario, key_variables, upcoming_catalysts)
-  - Weekly reports: Show all 6 sections
+  - Both daily and weekly: Hide 3 sections (upside_scenario, downside_scenario, key_variables)
+  - Daily only: Additionally hides upcoming_catalysts
+  - Weekly: Shows upcoming_catalysts (7 sections total)
 - **Database Schema:**
   - `system_config.daily_lookback_minutes` - Configurable via `/admin/settings` (default: 1440)
   - `system_config.weekly_lookback_minutes` - Configurable via `/admin/settings` (default: 10080)
