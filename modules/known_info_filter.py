@@ -408,11 +408,23 @@ H. Economic Data (stale when recapping old releases)
    - GDP, unemployment, CPI from prior periods being summarized
    - PMI, housing data, consumer confidence from months ago
 
-→ Categories A, B, C: ALWAYS mark as KNOWN (no timing exception)
+I. Aggregated Analyst Ratings (ALWAYS stale)
+   - Consensus ratings tallies ("82 rate Buy, 3 Hold, 0 Sell")
+   - Average/consensus/median price targets without named firm
+   - "X analysts cover the stock" summaries
+   - Aggregator roundups (TipRanks, Benzinga, Yahoo Finance, The Fly, Cantech Letter)
+   → Evidence: "Aggregated ratings - continuously observable"
+
+   EXCEPTION - When analyst data IS new (do NOT mark as stale):
+   - Named firm + specific action ("Goldman Sachs raised target to $250")
+   - Rating change from named firm ("Morgan Stanley upgraded to Overweight")
+   - Detailed thesis with firm attribution
+
+→ Categories A, B, C, I: ALWAYS mark as KNOWN (no timing exception)
 → Categories D-H: Mark as KNOWN if >2 weeks old
 → Evidence: "[Type] - continuously available market data"
 
-EXCEPTION - When market data IS new (applies to D-H only, NOT A-B-C):
+EXCEPTION - When market data IS new (applies to D-H only, NOT A-B-C-I):
 - Forward-looking forecasts/futures → NEW
 
 STEP 2: FOR DISCRETE RELEASES, WHEN WAS IT RELEASED?
@@ -1791,7 +1803,6 @@ def _filter_known_info_claude(
 
 # Bullet sections that are always exempt (never filtered)
 EXEMPT_SECTIONS = {
-    'wall_street_sentiment',
     'upcoming_catalysts',
     'key_variables',
 }
