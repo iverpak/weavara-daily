@@ -975,6 +975,10 @@ SPAM_DOMAINS = {
     "ts2.tech", "www.ts2.tech",  # Low-quality tech aggregator
     # Quant data aggregators (Dec 2025)
     "quiverquant.com", "www.quiverquant.com",  # Retail-oriented quant data, automated content
+    # Low-quality international sites (Dec 2025)
+    "tradersunion.com", "www.tradersunion.com",  # Forex/broker reviews, affiliate content
+    "ulpravda.ru", "www.ulpravda.ru",  # Russian regional news, not material for US/CA markets
+    "industrytoday.co.uk", "www.industrytoday.co.uk",  # UK industry aggregator, syndicated content
 }
 
 QUALITY_DOMAINS = {
