@@ -979,6 +979,15 @@ SPAM_DOMAINS = {
     "tradersunion.com", "www.tradersunion.com",  # Forex/broker reviews, affiliate content
     "ulpravda.ru", "www.ulpravda.ru",  # Russian regional news, not material for US/CA markets
     "industrytoday.co.uk", "www.industrytoday.co.uk",  # UK industry aggregator, syndicated content
+    # Low-quality international aggregators (Dec 2025)
+    "thenigerianvoice.com", "www.thenigerianvoice.com",  # Nigerian news aggregator
+    "news.az", "www.news.az",  # Azerbaijan news, not material for US/CA markets
+    "mixvale.com.br", "www.mixvale.com.br",  # Brazilian aggregator
+    "zoombangla.com", "www.zoombangla.com",  # Bangladeshi news aggregator
+    "dailyausaf.com", "www.dailyausaf.com",  # Pakistani Urdu news
+    "indiashorts.com", "www.indiashorts.com",  # Indian news aggregator
+    "businessupturn.com", "www.businessupturn.com",  # Low-quality business aggregator
+    "moha.gov.vn", "www.moha.gov.vn",  # Vietnamese government site, not material for US/CA markets
 }
 
 QUALITY_DOMAINS = {
