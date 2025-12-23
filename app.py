@@ -16206,7 +16206,7 @@ def generate_email_html_core(
 
         sections = convert_phase1_to_sections_dict(json_output)
         # Get indices of articles used in bullets that survived filtering
-        # Pass report_type to exclude hidden sections (daily hides upcoming_catalysts, key_variables)
+        # Excludes hidden sections (upcoming_catalysts, key_variables hidden for both daily/weekly)
         used_article_indices = get_used_article_indices(json_output, report_type=report_type)
         LOG.info(f"[{ticker}] Email #3: {len(used_article_indices)} article indices used in final report (after deduplication, report_type={report_type})")
     except json.JSONDecodeError as e:
@@ -16214,18 +16214,13 @@ def generate_email_html_core(
         sections = {}  # Empty sections
         used_article_indices = None  # No filtering (backward compat - show all)
 
-    # NEW (Nov 2025): Filter sections based on report_type
-    # Both daily and weekly hide these 3 sections (AI still generates them, just don't display)
+    # NEW (Nov 2025): Filter sections - hide 4 sections from both daily and weekly
+    # AI still generates them, just don't display in user-facing emails
     sections.pop('upside_scenario', None)
     sections.pop('downside_scenario', None)
     sections.pop('key_variables', None)
-
-    if report_type == 'daily':
-        # Daily also hides upcoming_catalysts
-        sections.pop('upcoming_catalysts', None)
-        LOG.info(f"[{ticker}] Daily report: Filtered to {len(sections)} sections (hid upside/downside/variables/catalysts)")
-    else:
-        LOG.info(f"[{ticker}] Weekly report: Filtered to {len(sections)} sections (hid upside/downside/variables, kept catalysts)")
+    sections.pop('upcoming_catalysts', None)
+    LOG.info(f"[{ticker}] {report_type.title()} report: Filtered to {len(sections)} sections (hid upside/downside/variables/catalysts)")
 
     # Extract preheader text from bottom_line (full content for email preview)
     # Bottom line is already curated to be 1-2 sentences - use it all

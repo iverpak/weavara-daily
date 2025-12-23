@@ -119,14 +119,14 @@ The system automatically generates different report types based on day of week:
 | Feature | Daily (Tue-Sun) | Weekly (Mon) |
 |---------|-----------------|--------------|
 | **Lookback Window** | 1440 minutes (1 day) | 10080 minutes (7 days) |
-| **Sections Shown** | 6 sections | 7 sections |
+| **Sections Shown** | 6 sections | 6 sections |
 | **Bottom Line** | ✅ Shown | ✅ Shown |
 | **Major Developments** | ✅ Shown | ✅ Shown |
 | **Financial/Operational** | ✅ Shown | ✅ Shown |
 | **Risk Factors** | ✅ Shown | ✅ Shown |
 | **Wall Street Sentiment** | ✅ Shown | ✅ Shown |
 | **Competitive/Industry** | ✅ Shown | ✅ Shown |
-| **Upcoming Catalysts** | ❌ Hidden | ✅ Shown |
+| **Upcoming Catalysts** | ❌ Hidden | ❌ Hidden |
 | **Upside Scenario** | ❌ Hidden | ❌ Hidden |
 | **Downside Scenario** | ❌ Hidden | ❌ Hidden |
 | **Key Variables** | ❌ Hidden | ❌ Hidden |
@@ -2049,11 +2049,10 @@ python app.py check_filings
   - Returns: `('daily', 1440)` or `('weekly', 10080)` based on day of week
   - Uses Toronto timezone (America/Toronto) for day detection
   - Queries `system_config` table for lookback windows
-- `generate_email_html_core()` - Line 18601 (Email #3 generation with section filtering)
+- `generate_email_html_core()` - Line 16217 (Email #3 generation with section filtering)
   - Parameter: `report_type` ('daily' or 'weekly')
-  - Both daily and weekly: Hide 3 sections (upside_scenario, downside_scenario, key_variables)
-  - Daily only: Additionally hides upcoming_catalysts
-  - Weekly: Shows upcoming_catalysts (7 sections total)
+  - Both daily and weekly: Hide 4 sections (upside_scenario, downside_scenario, key_variables, upcoming_catalysts)
+  - Both report types show 6 sections total
 - **Database Schema:**
   - `system_config.daily_lookback_minutes` - Configurable via `/admin/settings` (default: 1440)
   - `system_config.weekly_lookback_minutes` - Configurable via `/admin/settings` (default: 10080)

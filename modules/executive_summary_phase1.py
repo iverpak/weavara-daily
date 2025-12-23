@@ -748,13 +748,9 @@ def get_used_article_indices(phase_json: Dict, report_type: str = 'weekly') -> s
         "upcoming_catalysts", "key_variables"
     ]
 
-    # Both daily and weekly hide key_variables - don't collect article indices from it
+    # Both daily and weekly hide key_variables and upcoming_catalysts
     # This ensures Source Articles only shows articles used in VISIBLE sections
-    bullet_sections = [s for s in bullet_sections if s != 'key_variables']
-
-    # Daily also hides upcoming_catalysts
-    if report_type == 'daily':
-        bullet_sections = [s for s in bullet_sections if s != 'upcoming_catalysts']
+    bullet_sections = [s for s in bullet_sections if s not in ('key_variables', 'upcoming_catalysts')]
 
     for section_name in bullet_sections:
         section_content = sections.get(section_name, [])
