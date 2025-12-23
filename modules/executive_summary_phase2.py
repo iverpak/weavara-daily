@@ -1461,20 +1461,11 @@ def apply_deduplication(phase3_merged_json: Dict) -> Dict:
         "upcoming_catalysts"
     ]
 
-    # First pass: Build lookup of all bullets by bullet_id (for potential future use)
-    all_bullets = {}
-    for section_name in bullet_sections:
-        bullets = result.get("sections", {}).get(section_name, [])
-        for bullet in bullets:
-            bullet_id = bullet.get('bullet_id')
-            if bullet_id:
-                all_bullets[bullet_id] = bullet
-
     # Track stats
     duplicates_removed = 0
     primaries_consolidated = 0
 
-    # Second pass: Apply deduplication
+    # Apply deduplication: remove duplicates, keep primaries and unique bullets
     for section_name in bullet_sections:
         if section_name not in result.get("sections", {}):
             continue
