@@ -768,9 +768,14 @@ def get_used_article_indices(phase_json: Dict, report_type: str = 'weekly') -> s
                 if isinstance(source_articles, list):
                     used_indices.update(source_articles)
 
-    # Note: Phase 4 paragraphs (bottom_line, upside_scenario, downside_scenario) are
-    # synthesized FROM surviving bullets, so their source_articles are a subset of
-    # the bullet source_articles we already collected above. No need to collect separately.
+    # Phase 4 Bottom Line may reference articles from hidden sections (upcoming_catalysts,
+    # key_variables). Since Bottom Line IS visible, collect its source_articles too.
+    phase4 = phase_json.get('phase4', {})
+    phase4_bl = phase4.get('phase4_bottom_line', {})
+    if phase4_bl:
+        bl_sources = phase4_bl.get('source_articles', [])
+        if isinstance(bl_sources, list):
+            used_indices.update(bl_sources)
 
     return used_indices
 

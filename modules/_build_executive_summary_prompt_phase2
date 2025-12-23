@@ -1288,6 +1288,9 @@ Low impact:
 - Multiple analyst roundups without thesis
 - Consensus summaries ("45 buys, 3 holds")
 - <3 sentences of substance
+- Unnamed analysts ("some analysts", "certain analysts") without firm attribution
+- Quality-disclaimed sources ("lowest ranked", "bottom-rated", "least accurate")
+- Aggregator summaries (Yahoo Finance, TipRanks, Benzinga roundups) citing unnamed analysts
 
 STEP 2: CATEGORICAL EVENT CHECK
 If categorical event → Assign HIGH, skip to Step 6.
@@ -1357,6 +1360,7 @@ Override to LOW if ANY true:
 - Routine governance (no strategic signal)
 - Stock price performance summaries
 - Non-operational events (see below)
+- Market research press releases: Generic "Market to reach $X billion by 20XX" forecasts with far-future dates (2030+) or CAGR projections (not official sources like IEA/IMF/USDA)
 
 NON-OPERATIONAL EVENT TEST:
 Does event affect company's revenue-generating operations, capacity needs, or costs?
@@ -1588,6 +1592,8 @@ Red flags:
 - Context directly contradicts content (e.g., "risk" but context shows no exposure)
 - Connection requires 3+ logical steps to explain
 - Reader would pause and think "why is this here?"
+- Article's key financial metrics contradict filing data by >20% (stale or erroneous source)
+  → Example: Article claims $57.55B revenue, 10-Q shows $85.3B → factually wrong, reject
 
 If ANY red flag: Override to "low impact" + "none" relevance
 
@@ -1785,6 +1791,11 @@ Examples:
 "Revenue beat but margins missed" → mixed ✓
 "ACA repricing: 25% rate increase (bad for growth) establishes sustainable premium base (good for margins)" → mixed ✓
 "Medicare Advantage reduction: Losing 1M customers (bad for revenue) but exiting high-risk lives (good for profitability)" → mixed ✓
+
+- Source conflicts: Hard data (metrics, indicators) contradicts management characterization
+  → Data says X, management says Y - both are valid signals
+  → Example: Industrial indicators +3.7% YoY but CEO calls it "recession for 2+ years" → mixed
+  → The conflict itself is the insight; forcing one direction hides the other signal
 
 MIXED RESULTS: When metrics conflict (sequential up but YoY down, revenue beat but EPS miss):
 → If development has BOTH positive AND negative aspects that are roughly balanced: mixed

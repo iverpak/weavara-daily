@@ -95,6 +95,7 @@ Competitor operational reports, peer earnings, or industry leader actions often 
 - Vague trend pieces: "Top 5 Trends" listicles, "Future of [Industry]" without specific data promises
 - Coincidental keyword matches: Homonyms or unrelated uses of driver keywords
 - Promotional content: Advertorials, sponsored content, stock promotion
+- Market research press releases: Generic "Market to reach $X billion by 20XX" forecasts with far-future dates (2030+), CAGR projections, or "Research by [Firm]" attribution. These promote paid reports, not news. Official forecasts (IEA, EIA, IMF, USDA) remain TIER 2.
 
 **SCRAPE PRIORITY (assign integer 1-3):**
 1 = TIER 1: Direct driver keyword, policy action, data release, commodity price, supply/demand event
