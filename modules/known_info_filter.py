@@ -14,7 +14,7 @@ Knowledge Base: Transcript + 8-Ks only
 2-Step Flow:
 1. Sentence-level tagging (Gemini 3.0 Flash) - Tag each sentence KNOWN or NEW
 2. Threshold-based classification:
-   - EXEMPT sections (wall_street_sentiment, upcoming_catalysts, key_variables) → KEEP unchanged
+   - EXEMPT sections (upcoming_catalysts, key_variables) → KEEP unchanged
    - 100% KNOWN → REMOVE
    - ≥2/3 KNOWN → REMOVE
    - <2/3 KNOWN (includes 1/2, 1/3) → KEEP original
@@ -70,7 +70,7 @@ class Bullet(BaseModel):
     section: str = Field(..., description="Section name (e.g., 'major_developments', 'financial_performance')")
     sentences: List[Sentence] = Field(..., description="Sentence-level analysis for this bullet")
     action: Literal["KEEP", "REMOVE"] = Field(..., description="KEEP if any sentence is KEEP, REMOVE if all sentences REMOVE")
-    exempt: Optional[bool] = Field(False, description="True for exempt sections (wall_street_sentiment, upcoming_catalysts, key_variables)")
+    exempt: Optional[bool] = Field(False, description="True for exempt sections (upcoming_catalysts, key_variables)")
 
 
 class Summary(BaseModel):
@@ -637,7 +637,6 @@ BULLET SECTIONS TO FILTER (apply full sentence-level filtering):
 - competitive_industry_dynamics
 
 EXEMPT BULLET SECTIONS (analyze for transparency, but ALWAYS keep original):
-- wall_street_sentiment (analyst opinions ARE the news)
 - upcoming_catalysts (forward-looking editorial value)
 - key_variables (monitoring recommendations, not news claims)
 
@@ -764,34 +763,30 @@ JSON output for this bullet (NOTE: sentences array is REQUIRED even for REMOVE):
   "exempt": false
 }
 
-EXAMPLE 3: EXEMPT section (wall_street_sentiment) → action=KEEP, show analysis anyway
+EXAMPLE 3: EXEMPT section (upcoming_catalysts) → action=KEEP, show analysis anyway
 
-Original bullet: "Morgan Stanley upgraded to Buy with $150 price target, citing strong Q3 results."
+Original bullet: "Q4 earnings call scheduled for January 15, 2026."
 
 Analysis (for transparency only - exempt sections always KEEP):
-├─ Sentence 1: "Morgan Stanley upgraded to Buy with $150 price target, citing strong Q3 results."
-│  ├─ Claim: "Morgan Stanley upgraded to Buy" → NEW (analyst action)
-│  ├─ Claim: "$150 price target" → NEW (analyst target)
-│  ├─ Claim: "citing strong Q3 results" → KNOWN (TRANSCRIPT_1: Q3 results discussed)
-│  ├─ has_material_new: true
-│  └─ sentence_action: KEEP (but irrelevant - section is exempt)
+├─ Sentence 1: "Q4 earnings call scheduled for January 15, 2026."
+│  ├─ Claim: "Q4 earnings call January 15, 2026" → KNOWN (TRANSCRIPT_1: mentioned next call date)
+│  ├─ has_material_new: false
+│  └─ sentence_action: REMOVE (but irrelevant - section is exempt)
 │
 └─ Bullet verdict: EXEMPT → action = KEEP (regardless of analysis)
 
 JSON output for exempt bullet:
 {
-  "bullet_id": "WSS_001",
-  "section": "wall_street_sentiment",
+  "bullet_id": "CAT_001",
+  "section": "upcoming_catalysts",
   "sentences": [
     {
-      "text": "Morgan Stanley upgraded to Buy with $150 price target, citing strong Q3 results.",
+      "text": "Q4 earnings call scheduled for January 15, 2026.",
       "claims": [
-        {"claim": "Morgan Stanley upgraded to Buy", "status": "NEW", "source_type": null, "evidence": null},
-        {"claim": "$150 price target", "status": "NEW", "source_type": null, "evidence": null},
-        {"claim": "citing strong Q3 results", "status": "KNOWN", "source_type": "TRANSCRIPT_1", "evidence": "Q3 results discussed in earnings call"}
+        {"claim": "Q4 earnings call January 15, 2026", "status": "KNOWN", "source_type": "TRANSCRIPT_1", "evidence": "Next earnings call date mentioned"}
       ],
-      "has_material_new": true,
-      "sentence_action": "KEEP"
+      "has_material_new": false,
+      "sentence_action": "REMOVE"
     }
   ],
   "action": "KEEP",
@@ -931,7 +926,7 @@ IMPORTANT - DO NOT SKIP ANY OF THESE:
    - Do NOT report on empty sections - simply skip them
    - The summary counts should only reflect bullets that actually had content
 
-5. For EXEMPT sections (wall_street_sentiment, upcoming_catalysts, key_variables):
+5. For EXEMPT sections (upcoming_catalysts, key_variables):
    - DO perform sentence/claim analysis (for QA visibility)
    - Set action="KEEP"
    - Add "exempt": true to the output
@@ -1813,7 +1808,7 @@ def _classify_bullet_with_threshold(item: Dict, section: str) -> str:
     Classify bullet using 2/3 threshold rule.
 
     Rules:
-    - Exempt sections: Always KEEP (wall_street_sentiment, upcoming_catalysts, key_variables)
+    - Exempt sections: Always KEEP (upcoming_catalysts, key_variables)
     - 0% stale (100% NEW): KEEP
     - <2/3 stale (e.g., 1/2, 1/3): KEEP
     - ≥2/3 stale: REMOVE
