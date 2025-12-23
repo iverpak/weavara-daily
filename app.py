@@ -7682,6 +7682,15 @@ def ingest_feed_basic_only(feed: Dict, mode: str = 'production', quota: int = No
                         LOG.warning(f"⚠️ ADVANCED API FAILED: {title[:60]} (falling back to title extraction)")
                         clean_title, source_name = extract_source_from_title_smart(title)
 
+                        # Check spam on raw extracted source BEFORE any conversion
+                        # Catches domains like "ts2.tech" that appear directly in title suffix
+                        if source_name:
+                            source_lower = source_name.lower()
+                            if any(spam in source_lower for spam in SPAM_DOMAINS):
+                                stats["blocked_spam"] += 1
+                                LOG.info(f"SPAM REJECTED: Google News title → {source_name}")
+                                continue
+
                         if source_name and not domain_resolver._is_spam_source(source_name):
                             domain = domain_resolver._resolve_publication_to_domain(source_name)
 
