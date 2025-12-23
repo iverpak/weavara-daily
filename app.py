@@ -6993,6 +6993,14 @@ async def process_article_batch_async(articles_batch: List[Dict], categories: Un
                     # Parse quality score from AI summary
                     clean_summary, quality_score = parse_quality_score(raw_summary) if raw_summary else (None, None)
 
+                    # Quality floor check: reject articles with quality < 3.0
+                    # This clears ai_summary (blocking Phase 1) and sets ai_model = "low_quality"
+                    ai_model_for_db = result.get("ai_model")
+                    if quality_score is not None and quality_score < 3.0:
+                        LOG.info(f"[{analysis_ticker}] 🚫 Low quality ({quality_score:.1f}/10) - rejecting article: {article.get('title', 'No title')[:50]}...")
+                        clean_summary = None  # Block from Phase 1
+                        ai_model_for_db = "low_quality"
+
                     # Articles already exist - use their IDs directly
                     article_id = article.get("id")
                     domain = article.get("domain")
@@ -7015,9 +7023,9 @@ async def process_article_batch_async(articles_batch: List[Dict], categories: Un
 
                         # Update ticker-specific AI summary and quality score
                         # ALWAYS save ai_model, even if summary is None (for filtered/rejected/error articles)
-                        if result.get("ai_model"):
+                        if ai_model_for_db:
                             update_ticker_article_summary(
-                                analysis_ticker, article_id, clean_summary, result.get("ai_model"),
+                                analysis_ticker, article_id, clean_summary, ai_model_for_db,
                                 quality_score=quality_score, domain=domain
                             )
 
@@ -8010,6 +8018,10 @@ def _format_article_html_with_ai_summary(article: Dict, category: str, ticker_me
         # Rejected by relevance gate (badge handled by relevance_badge_html below at Line 6240+)
         # No additional badge needed here - relevance section shows score and reason
         pass
+    elif ai_model == 'low_quality':
+        # Rejected by quality floor (< 3.0) - low quality source or content
+        quality_score = article.get('quality_score', 0)
+        header_badges.append(f'<span class="low-quality-badge" style="display: inline-block; padding: 2px 8px; margin-right: 8px; border-radius: 3px; font-weight: bold; font-size: 10px; background-color: #fee; color: #c53030; border: 1px solid #fc8181;">🚫 Low Quality ({quality_score:.1f}/10)</span>')
     elif ai_model == 'error':
         # AI analysis failed (technical error)
         header_badges.append('<span class="error-badge" style="display: inline-block; padding: 2px 8px; margin-right: 8px; border-radius: 3px; font-weight: bold; font-size: 10px; background-color: #fee; color: #c53030; border: 1px solid #fc8181;">❌ Failed (AI Error)</span>')
@@ -8022,7 +8034,7 @@ def _format_article_html_with_ai_summary(article: Dict, category: str, ticker_me
     elif ai_model == 'metadata_missing':
         # Missing feed_ticker or value_chain_type for competitor/value_chain articles
         header_badges.append('<span class="metadata-badge" style="display: inline-block; padding: 2px 8px; margin-right: 8px; border-radius: 3px; font-weight: bold; font-size: 10px; background-color: #fee; color: #c53030; border: 1px solid #fc8181;">❌ Failed (Metadata)</span>')
-    elif ai_summary and ai_model and ai_model not in ('none', 'spam', 'filtered', 'low_relevance', 'error', 'short_content', 'api_failed', 'metadata_missing'):
+    elif ai_summary and ai_model and ai_model not in ('none', 'spam', 'filtered', 'low_relevance', 'low_quality', 'error', 'short_content', 'api_failed', 'metadata_missing'):
         # Successfully analyzed article - show which AI model was used
         header_badges.append(f'<span class="ai-model-badge">🤖 {ai_model}</span>')
     elif scraping_failed:
@@ -8058,22 +8070,23 @@ def _format_article_html_with_ai_summary(article: Dict, category: str, ticker_me
         reason_escaped = html.escape(reason)
         relevance_reason_html = f"<br><div style='color: #718096; font-size: 11px; font-style: italic; margin-top: 4px; padding: 6px 8px; background-color: #f7fafc; border-left: 3px solid {'#fc8181' if is_rejected else '#9ae6b4'}; border-radius: 3px;'><strong>Relevance:</strong> {reason_escaped}</div>"
 
-    # 7. Quality score badge (NEW - Oct 2025)
+    # 7. Quality score badge (NEW - Oct 2025, updated Dec 2025)
+    # Thresholds: ≥6.0 green, 3.0-5.9 yellow, <3.0 red (rejected articles)
     quality_badge_html = ""
     if article.get('quality_score') is not None:
         score = article.get('quality_score')
 
-        # Color based on score
-        if score >= 7.0:
-            badge_color = "#22543d"  # Green
+        # Color based on score (updated Dec 2025)
+        if score >= 6.0:
+            badge_color = "#22543d"  # Green - institutional quality
             bg_color = "#e6ffed"
             border_color = "#9ae6b4"
-        elif score >= 5.0:
-            badge_color = "#744210"  # Yellow
+        elif score >= 3.0:
+            badge_color = "#744210"  # Yellow - acceptable quality
             bg_color = "#fefcbf"
             border_color = "#f6e05e"
         else:
-            badge_color = "#c53030"  # Red
+            badge_color = "#c53030"  # Red - rejected (should show low_quality badge instead)
             bg_color = "#fee"
             border_color = "#fc8181"
 
@@ -8618,7 +8631,7 @@ CONTENT_CHAR_LIMIT = 10000
 # ARTICLE SUMMARY WRAPPERS (Nov 2025 - Gemini primary, Claude fallback)
 # ============================================================================
 
-async def generate_article_summary_company(company_name: str, ticker: str, title: str, scraped_content: str) -> Tuple[Optional[str], str]:
+async def generate_article_summary_company(company_name: str, ticker: str, title: str, scraped_content: str, domain: str = None) -> Tuple[Optional[str], str]:
     """Generate article summary for company article
 
     Primary: Gemini Flash 2.5
@@ -8630,7 +8643,7 @@ async def generate_article_summary_company(company_name: str, ticker: str, title
     # Try Gemini first
     if GEMINI_API_KEY:
         summary, provider, usage = await article_summaries.generate_gemini_article_summary_company(
-            company_name, ticker, title, scraped_content, GEMINI_API_KEY
+            company_name, ticker, title, scraped_content, GEMINI_API_KEY, domain=domain
         )
         if provider == "Gemini" and usage:
             calculate_gemini_api_cost(usage, "article_summary_company", model="flash")
@@ -8644,7 +8657,7 @@ async def generate_article_summary_company(company_name: str, ticker: str, title
         session = get_http_session()
         summary, provider, usage = await article_summaries.generate_claude_article_summary_company(
             company_name, ticker, title, scraped_content,
-            ANTHROPIC_API_KEY, ANTHROPIC_MODEL, ANTHROPIC_API_URL, session
+            ANTHROPIC_API_KEY, ANTHROPIC_MODEL, ANTHROPIC_API_URL, session, domain=domain
         )
         if provider == "Sonnet" and usage:
             calculate_claude_api_cost(usage, "article_summary_company")
@@ -8653,12 +8666,12 @@ async def generate_article_summary_company(company_name: str, ticker: str, title
     return None, "api_failed"
 
 
-async def generate_article_summary_competitor(competitor_name: str, competitor_ticker: str, target_company: str, target_ticker: str, title: str, scraped_content: str) -> Tuple[Optional[str], str]:
+async def generate_article_summary_competitor(competitor_name: str, competitor_ticker: str, target_company: str, target_ticker: str, title: str, scraped_content: str, domain: str = None) -> Tuple[Optional[str], str]:
     """Generate article summary for competitor article"""
     if GEMINI_API_KEY:
         summary, provider, usage = await article_summaries.generate_gemini_article_summary_competitor(
             competitor_name, competitor_ticker, target_company, target_ticker,
-            title, scraped_content, GEMINI_API_KEY
+            title, scraped_content, GEMINI_API_KEY, domain=domain
         )
         if provider == "Gemini" and usage:
             calculate_gemini_api_cost(usage, "article_summary_competitor", model="flash")
@@ -8671,7 +8684,7 @@ async def generate_article_summary_competitor(competitor_name: str, competitor_t
         session = get_http_session()
         summary, provider, usage = await article_summaries.generate_claude_article_summary_competitor(
             competitor_name, competitor_ticker, target_company, target_ticker,
-            title, scraped_content, ANTHROPIC_API_KEY, ANTHROPIC_MODEL, ANTHROPIC_API_URL, session
+            title, scraped_content, ANTHROPIC_API_KEY, ANTHROPIC_MODEL, ANTHROPIC_API_URL, session, domain=domain
         )
         if provider == "Sonnet" and usage:
             calculate_claude_api_cost(usage, "article_summary_competitor")
@@ -8680,12 +8693,12 @@ async def generate_article_summary_competitor(competitor_name: str, competitor_t
     return None, "api_failed"
 
 
-async def generate_article_summary_upstream(value_chain_company: str, value_chain_ticker: str, target_company: str, target_ticker: str, title: str, scraped_content: str) -> Tuple[Optional[str], str]:
+async def generate_article_summary_upstream(value_chain_company: str, value_chain_ticker: str, target_company: str, target_ticker: str, title: str, scraped_content: str, domain: str = None) -> Tuple[Optional[str], str]:
     """Generate article summary for upstream supplier article"""
     if GEMINI_API_KEY:
         summary, provider, usage = await article_summaries.generate_gemini_article_summary_upstream(
             value_chain_company, value_chain_ticker, target_company, target_ticker,
-            title, scraped_content, GEMINI_API_KEY
+            title, scraped_content, GEMINI_API_KEY, domain=domain
         )
         if provider == "Gemini" and usage:
             calculate_gemini_api_cost(usage, "article_summary_upstream", model="flash")
@@ -8698,7 +8711,7 @@ async def generate_article_summary_upstream(value_chain_company: str, value_chai
         session = get_http_session()
         summary, provider, usage = await article_summaries.generate_claude_article_summary_upstream(
             value_chain_company, value_chain_ticker, target_company, target_ticker,
-            title, scraped_content, ANTHROPIC_API_KEY, ANTHROPIC_MODEL, ANTHROPIC_API_URL, session
+            title, scraped_content, ANTHROPIC_API_KEY, ANTHROPIC_MODEL, ANTHROPIC_API_URL, session, domain=domain
         )
         if provider == "Sonnet" and usage:
             calculate_claude_api_cost(usage, "article_summary_upstream")
@@ -8707,12 +8720,12 @@ async def generate_article_summary_upstream(value_chain_company: str, value_chai
     return None, "api_failed"
 
 
-async def generate_article_summary_downstream(value_chain_company: str, value_chain_ticker: str, target_company: str, target_ticker: str, title: str, scraped_content: str) -> Tuple[Optional[str], str]:
+async def generate_article_summary_downstream(value_chain_company: str, value_chain_ticker: str, target_company: str, target_ticker: str, title: str, scraped_content: str, domain: str = None) -> Tuple[Optional[str], str]:
     """Generate article summary for downstream customer article"""
     if GEMINI_API_KEY:
         summary, provider, usage = await article_summaries.generate_gemini_article_summary_downstream(
             value_chain_company, value_chain_ticker, target_company, target_ticker,
-            title, scraped_content, GEMINI_API_KEY
+            title, scraped_content, GEMINI_API_KEY, domain=domain
         )
         if provider == "Gemini" and usage:
             calculate_gemini_api_cost(usage, "article_summary_downstream", model="flash")
@@ -8725,7 +8738,7 @@ async def generate_article_summary_downstream(value_chain_company: str, value_ch
         session = get_http_session()
         summary, provider, usage = await article_summaries.generate_claude_article_summary_downstream(
             value_chain_company, value_chain_ticker, target_company, target_ticker,
-            title, scraped_content, ANTHROPIC_API_KEY, ANTHROPIC_MODEL, ANTHROPIC_API_URL, session
+            title, scraped_content, ANTHROPIC_API_KEY, ANTHROPIC_MODEL, ANTHROPIC_API_URL, session, domain=domain
         )
         if provider == "Sonnet" and usage:
             calculate_claude_api_cost(usage, "article_summary_downstream")
@@ -8734,7 +8747,7 @@ async def generate_article_summary_downstream(value_chain_company: str, value_ch
     return None, "api_failed"
 
 
-async def generate_article_summary_industry(industry_keyword: str, target_company: str, target_ticker: str, title: str, scraped_content: str) -> Tuple[Optional[str], str]:
+async def generate_article_summary_industry(industry_keyword: str, target_company: str, target_ticker: str, title: str, scraped_content: str, domain: str = None) -> Tuple[Optional[str], str]:
     """Generate article summary for industry/fundamental driver article"""
     # Get ticker config for geographic metadata
     config = get_ticker_config(target_ticker) or {}
@@ -8743,7 +8756,7 @@ async def generate_article_summary_industry(industry_keyword: str, target_compan
     if GEMINI_API_KEY:
         summary, provider, usage = await article_summaries.generate_gemini_article_summary_industry(
             industry_keyword, target_company, target_ticker,
-            title, scraped_content, GEMINI_API_KEY, geographic_markets
+            title, scraped_content, GEMINI_API_KEY, geographic_markets, domain=domain
         )
         if provider == "Gemini" and usage:
             calculate_gemini_api_cost(usage, "article_summary_industry", model="flash")
@@ -8756,7 +8769,7 @@ async def generate_article_summary_industry(industry_keyword: str, target_compan
         session = get_http_session()
         summary, provider, usage = await article_summaries.generate_claude_article_summary_industry(
             industry_keyword, target_company, target_ticker,
-            title, scraped_content, ANTHROPIC_API_KEY, ANTHROPIC_MODEL, ANTHROPIC_API_URL, session, geographic_markets
+            title, scraped_content, ANTHROPIC_API_KEY, ANTHROPIC_MODEL, ANTHROPIC_API_URL, session, geographic_markets, domain=domain
         )
         if provider == "Sonnet" and usage:
             calculate_claude_api_cost(usage, "article_summary_industry")
@@ -8818,14 +8831,17 @@ async def route_article_summary_by_category(scraped_content: str, title: str, ti
     LOG.debug(f"[{ticker}] 🎯 Routing {category} article: {title[:50]}...")
     LOG.debug(f"[{ticker}]    Metadata keys: {list(article_metadata.keys())}")
 
+    # Extract domain for quality scoring
+    domain = article_metadata.get("domain")
+
     if category == "company":
-        return await generate_article_summary_company(target_company_name, ticker, title, scraped_content)
+        return await generate_article_summary_company(target_company_name, ticker, title, scraped_content, domain=domain)
     elif category == "competitor":
         competitor_ticker = article_metadata.get("feed_ticker")
         if not competitor_ticker:
             return None, "metadata_missing"
         competitor_name = competitor_name_cache.get(competitor_ticker, competitor_ticker)
-        return await generate_article_summary_competitor(competitor_name, competitor_ticker, target_company_name, ticker, title, scraped_content)
+        return await generate_article_summary_competitor(competitor_name, competitor_ticker, target_company_name, ticker, title, scraped_content, domain=domain)
     elif category == "value_chain":
         value_chain_ticker = article_metadata.get("feed_ticker")  # Feed ticker (competitor, supplier, or customer)
         value_chain_type = article_metadata.get("value_chain_type")  # upstream or downstream
@@ -8834,14 +8850,14 @@ async def route_article_summary_by_category(scraped_content: str, title: str, ti
         value_chain_name = competitor_name_cache.get(value_chain_ticker, value_chain_ticker)
         # Call appropriate value chain function
         if value_chain_type == "upstream":
-            return await generate_article_summary_upstream(value_chain_name, value_chain_ticker, target_company_name, ticker, title, scraped_content)
+            return await generate_article_summary_upstream(value_chain_name, value_chain_ticker, target_company_name, ticker, title, scraped_content, domain=domain)
         elif value_chain_type == "downstream":
-            return await generate_article_summary_downstream(value_chain_name, value_chain_ticker, target_company_name, ticker, title, scraped_content)
+            return await generate_article_summary_downstream(value_chain_name, value_chain_ticker, target_company_name, ticker, title, scraped_content, domain=domain)
         else:
             return None, "metadata_missing"  # Invalid value_chain_type
     elif category == "industry":
         industry_keyword = article_metadata.get("search_keyword", "this industry")
-        return await generate_article_summary_industry(industry_keyword, target_company_name, ticker, title, scraped_content)
+        return await generate_article_summary_industry(industry_keyword, target_company_name, ticker, title, scraped_content, domain=domain)
     return None, "api_failed"  # Unknown category
 
 async def generate_article_summary(scraped_content: str, title: str, ticker: str, description: str,

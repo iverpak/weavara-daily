@@ -82,7 +82,8 @@ async def generate_gemini_article_summary_company(
     ticker: str,
     title: str,
     scraped_content: str,
-    gemini_api_key: str
+    gemini_api_key: str,
+    domain: str = None
 ) -> Tuple[Optional[str], str, Optional[dict]]:
     """Generate Gemini summary for company article
 
@@ -104,11 +105,12 @@ async def generate_gemini_article_summary_company(
             genai.configure(api_key=gemini_api_key)
 
             # User content
+            source_line = f"\n**SOURCE:** {domain}\n" if domain else "\n"
             user_content = f"""**TARGET COMPANY:** {company_name} ({ticker})
 
 **ARTICLE TITLE:**
 {title}
-
+{source_line}
 **ARTICLE CONTENT:**
 {scraped_content[:CONTENT_CHAR_LIMIT]}
 
@@ -172,7 +174,8 @@ async def generate_gemini_article_summary_competitor(
     target_ticker: str,
     title: str,
     scraped_content: str,
-    gemini_api_key: str
+    gemini_api_key: str,
+    domain: str = None
 ) -> Tuple[Optional[str], str, Optional[dict]]:
     """Generate Gemini summary for competitor article"""
     if not gemini_api_key:
@@ -186,12 +189,13 @@ async def generate_gemini_article_summary_competitor(
         try:
             genai.configure(api_key=gemini_api_key)
 
+            source_line = f"\n**SOURCE:** {domain}\n" if domain else "\n"
             user_content = f"""**TARGET COMPANY:** {target_company} ({target_ticker})
 **COMPETITOR:** {competitor_name} ({competitor_ticker})
 
 **ARTICLE TITLE:**
 {title}
-
+{source_line}
 **ARTICLE CONTENT:**
 {scraped_content[:CONTENT_CHAR_LIMIT]}
 
@@ -248,7 +252,8 @@ async def generate_gemini_article_summary_upstream(
     target_ticker: str,
     title: str,
     scraped_content: str,
-    gemini_api_key: str
+    gemini_api_key: str,
+    domain: str = None
 ) -> Tuple[Optional[str], str, Optional[dict]]:
     """Generate Gemini summary for upstream supplier article"""
     if not gemini_api_key:
@@ -262,12 +267,13 @@ async def generate_gemini_article_summary_upstream(
         try:
             genai.configure(api_key=gemini_api_key)
 
+            source_line = f"\n**SOURCE:** {domain}\n" if domain else "\n"
             user_content = f"""**TARGET COMPANY:** {target_company} ({target_ticker})
 **UPSTREAM SUPPLIER:** {value_chain_company} ({value_chain_ticker})
 
 **ARTICLE TITLE:**
 {title}
-
+{source_line}
 **ARTICLE CONTENT:**
 {scraped_content[:CONTENT_CHAR_LIMIT]}
 
@@ -324,7 +330,8 @@ async def generate_gemini_article_summary_downstream(
     target_ticker: str,
     title: str,
     scraped_content: str,
-    gemini_api_key: str
+    gemini_api_key: str,
+    domain: str = None
 ) -> Tuple[Optional[str], str, Optional[dict]]:
     """Generate Gemini summary for downstream customer article"""
     if not gemini_api_key:
@@ -338,12 +345,13 @@ async def generate_gemini_article_summary_downstream(
         try:
             genai.configure(api_key=gemini_api_key)
 
+            source_line = f"\n**SOURCE:** {domain}\n" if domain else "\n"
             user_content = f"""**TARGET COMPANY:** {target_company} ({target_ticker})
 **DOWNSTREAM CUSTOMER:** {value_chain_company} ({value_chain_ticker})
 
 **ARTICLE TITLE:**
 {title}
-
+{source_line}
 **ARTICLE CONTENT:**
 {scraped_content[:CONTENT_CHAR_LIMIT]}
 
@@ -400,7 +408,8 @@ async def generate_gemini_article_summary_industry(
     title: str,
     scraped_content: str,
     gemini_api_key: str,
-    geographic_markets: str = ""
+    geographic_markets: str = "",
+    domain: str = None
 ) -> Tuple[Optional[str], str, Optional[dict]]:
     """Generate Gemini summary for industry/fundamental driver article"""
     if not gemini_api_key:
@@ -415,13 +424,14 @@ async def generate_gemini_article_summary_industry(
             genai.configure(api_key=gemini_api_key)
 
             geographic_context = f"\n**GEOGRAPHIC MARKETS:** {geographic_markets}" if geographic_markets else ""
+            source_line = f"\n**SOURCE:** {domain}\n" if domain else "\n"
 
             user_content = f"""**TARGET COMPANY:** {target_company} ({target_ticker})
 **FUNDAMENTAL DRIVER KEYWORD:** {industry_keyword}{geographic_context}
 
 **ARTICLE TITLE:**
 {title}
-
+{source_line}
 **ARTICLE CONTENT:**
 {scraped_content[:CONTENT_CHAR_LIMIT]}
 
@@ -483,7 +493,8 @@ async def generate_claude_article_summary_company(
     anthropic_api_key: str,
     anthropic_model: str,
     anthropic_api_url: str,
-    http_session: aiohttp.ClientSession
+    http_session: aiohttp.ClientSession,
+    domain: str = None
 ) -> Tuple[Optional[str], str, Optional[dict]]:
     """Generate Claude summary for company article (fallback)
 
@@ -502,11 +513,12 @@ async def generate_claude_article_summary_company(
     for attempt in range(max_retries + 1):
         try:
             # User content
+            source_line = f"\n**SOURCE:** {domain}\n" if domain else "\n"
             user_content = f"""**TARGET COMPANY:** {company_name} ({ticker})
 
 **ARTICLE TITLE:**
 {title}
-
+{source_line}
 **ARTICLE CONTENT:**
 {scraped_content[:CONTENT_CHAR_LIMIT]}
 
@@ -582,7 +594,8 @@ async def generate_claude_article_summary_competitor(
     anthropic_api_key: str,
     anthropic_model: str,
     anthropic_api_url: str,
-    http_session: aiohttp.ClientSession
+    http_session: aiohttp.ClientSession,
+    domain: str = None
 ) -> Tuple[Optional[str], str, Optional[dict]]:
     """Generate Claude summary for competitor article (fallback)"""
     if not anthropic_api_key:
@@ -594,12 +607,13 @@ async def generate_claude_article_summary_competitor(
 
     for attempt in range(max_retries + 1):
         try:
+            source_line = f"\n**SOURCE:** {domain}\n" if domain else "\n"
             user_content = f"""**TARGET COMPANY:** {target_company} ({target_ticker})
 **COMPETITOR:** {competitor_name} ({competitor_ticker})
 
 **ARTICLE TITLE:**
 {title}
-
+{source_line}
 **ARTICLE CONTENT:**
 {scraped_content[:CONTENT_CHAR_LIMIT]}
 
@@ -675,7 +689,8 @@ async def generate_claude_article_summary_upstream(
     anthropic_api_key: str,
     anthropic_model: str,
     anthropic_api_url: str,
-    http_session: aiohttp.ClientSession
+    http_session: aiohttp.ClientSession,
+    domain: str = None
 ) -> Tuple[Optional[str], str, Optional[dict]]:
     """Generate Claude summary for upstream supplier article (fallback)"""
     if not anthropic_api_key:
@@ -687,12 +702,13 @@ async def generate_claude_article_summary_upstream(
 
     for attempt in range(max_retries + 1):
         try:
+            source_line = f"\n**SOURCE:** {domain}\n" if domain else "\n"
             user_content = f"""**TARGET COMPANY:** {target_company} ({target_ticker})
 **UPSTREAM SUPPLIER:** {value_chain_company} ({value_chain_ticker})
 
 **ARTICLE TITLE:**
 {title}
-
+{source_line}
 **ARTICLE CONTENT:**
 {scraped_content[:CONTENT_CHAR_LIMIT]}
 
@@ -768,7 +784,8 @@ async def generate_claude_article_summary_downstream(
     anthropic_api_key: str,
     anthropic_model: str,
     anthropic_api_url: str,
-    http_session: aiohttp.ClientSession
+    http_session: aiohttp.ClientSession,
+    domain: str = None
 ) -> Tuple[Optional[str], str, Optional[dict]]:
     """Generate Claude summary for downstream customer article (fallback)"""
     if not anthropic_api_key:
@@ -780,12 +797,13 @@ async def generate_claude_article_summary_downstream(
 
     for attempt in range(max_retries + 1):
         try:
+            source_line = f"\n**SOURCE:** {domain}\n" if domain else "\n"
             user_content = f"""**TARGET COMPANY:** {target_company} ({target_ticker})
 **DOWNSTREAM CUSTOMER:** {value_chain_company} ({value_chain_ticker})
 
 **ARTICLE TITLE:**
 {title}
-
+{source_line}
 **ARTICLE CONTENT:**
 {scraped_content[:CONTENT_CHAR_LIMIT]}
 
@@ -861,7 +879,8 @@ async def generate_claude_article_summary_industry(
     anthropic_model: str,
     anthropic_api_url: str,
     http_session: aiohttp.ClientSession,
-    geographic_markets: str = ""
+    geographic_markets: str = "",
+    domain: str = None
 ) -> Tuple[Optional[str], str, Optional[dict]]:
     """Generate Claude summary for industry/fundamental driver article (fallback)"""
     if not anthropic_api_key:
@@ -874,13 +893,14 @@ async def generate_claude_article_summary_industry(
     for attempt in range(max_retries + 1):
         try:
             geographic_context = f"\n**GEOGRAPHIC MARKETS:** {geographic_markets}" if geographic_markets else ""
+            source_line = f"\n**SOURCE:** {domain}\n" if domain else "\n"
 
             user_content = f"""**TARGET COMPANY:** {target_company} ({target_ticker})
 **FUNDAMENTAL DRIVER KEYWORD:** {industry_keyword}{geographic_context}
 
 **ARTICLE TITLE:**
 {title}
-
+{source_line}
 **ARTICLE CONTENT:**
 {scraped_content[:CONTENT_CHAR_LIMIT]}
 

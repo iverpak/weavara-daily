@@ -237,17 +237,28 @@ Sector Framing Check:
 ❗ CRITICAL: You MUST output quality score as JSON on the absolute final line of your response.
 ❗ This is required for all articles without exception.
 
-After summary, output JSON as last line:
+Core question: Would an institutional investor be comfortable citing this source in a research note?
+
+Evaluate on two dimensions:
+
+**SOURCE CREDIBILITY:**
+- Is this outlet recognized and respected for covering this topic/sector/geography?
+- Is the source appropriately matched? (e.g., industry specialist for niche topics, major press for broad news, regional outlet for local developments)
+- Red flags: Geographic mismatch (outlet's region unrelated to story), no identifiable editorial standards, domain appears auto-generated or spammy
+
+**CONTENT QUALITY:**
+- Does this reflect original reporting with specific details (names, figures, dates, quotes)?
+- Are claims attributed to identifiable sources?
+- Red flags: No author byline, generic/templated phrasing, reads like press release rewrite, lacks specific details, AI-generated feel (overly formal, repetitive structure, no unique voice)
+
+**Scoring:**
+- 9-10: Institutional-grade source + original reporting with named sources, exclusive data, or expert access
+- 6-8: Credible outlet + solid original analysis, primary sources cited, meaningful detail
+- 3-5: Acceptable source + standard reporting, adequate attribution and specificity
+- 1-2: Unacceptable for professional use — spam, AI-generated filler, geographic nonsense, or advertorial
+
+After summary, output JSON as absolute final line:
 {"quality": X.X}
-
-Score based on:
-- 9-10: Original investigative reporting, named author, exclusive interviews/data, substantial depth
-- 7-8: Original analysis, identified author, detailed content, primary sources cited
-- 5-6: Standard reporting, adequate detail, properly attributed sources
-- 3-4: Thin content, aggregated from elsewhere, minimal detail, generic phrasing
-- 1-2: Press release rewrite, advertorial, obvious AI-generated content
-
-AI-Generated Indicators: No author byline, generic/repetitive phrasing, overly formal, present tense throughout, lacks specific details/quotes.
 
 Example endings:
 ...Article reported natural gas at $2.90/MMBtu, down 15% from prior month on storage surplus (naturalgasintel.com).
