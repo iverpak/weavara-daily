@@ -43,23 +43,34 @@ CRITICAL: Compare ONLY the "content" field (Phase 1 article data).
 DO NOT include in comparison:
 - "context" field (Phase 2 filing data - legitimately differs)
 - Metadata fields (impact, sentiment, reason, entity, filing_hints)
-- Sentiment/framing differences (bearish vs mixed about SAME news = still duplicate)
+- Sentiment/framing differences about the SAME FACTS (bearish vs bullish framing of identical news = still duplicate)
+- BUT: Different facts with different sentiments = NOT duplicates (keep both for balance)
 
 Phase 2 context is supplementary filing data. Two bullets about the same news
 may have different filing excerpts attached - they are still duplicates.
 
-OVERLAP TEST - Two bullets are DUPLICATES if EITHER:
+OVERLAP TEST - Two bullets are DUPLICATES only if BOTH conditions are met:
 
 1. SOURCE OVERLAP: source_articles arrays share ≥50% of indices
-   - Same underlying articles = same news, regardless of framing
-   - Example: [7, 8] vs [7, 8] → 100% overlap → DUPLICATE
-   - Example: [2, 5, 7] vs [5, 7, 9] → 2 shared / 4 unique = 50% → DUPLICATE
+   - Example: [7, 8] vs [7, 8] → 100% overlap ✓
+   - Example: [2, 5, 7] vs [5, 7, 9] → 2 shared / 4 unique = 50% ✓
 
 2. FACT OVERLAP: >50% of extracted facts appear in both bullets
-   - Extract from "content" field only: numbers, entities, events, quotes
-   - Same news from different sources still duplicates
+   - Extract from "content" field only: numbers, percentages, entities, events, quotes
+   - Compare the actual facts, not just the source
 
-Either condition alone is sufficient. Do not require both.
+CRITICAL: A single article often contains MULTIPLE distinct developments.
+If Phase 1 extracted DIFFERENT facts from the same article into different bullets,
+they are NOT duplicates — both bullets provide unique value.
+
+Example of NOT a duplicate (different facts from overlapping sources):
+- Bullet A: "FedEx closing 30% of facilities by FY2027" [sources: 3]
+- Bullet B: "FedEx raised FY26 guidance to 5-6% growth" [sources: 1, 3]
+- Source overlap: 50% (share article 3) ✓
+- Fact overlap: 0% (completely different facts) ✗
+- Result: NOT duplicates — keep both bullets
+
+Both conditions must be met. Source overlap alone is NOT sufficient.
 
 HIERARCHY FOR SELECTING PRIMARY:
 When duplicates found, the bullet in the FIRST matching section wins:
@@ -191,7 +202,10 @@ Risk Factors:
   "source_articles": [7, 8, 10]
 }
 
-Analysis: source_articles overlap = [7, 8] / unique = [3, 7, 8, 10] = 2/4 = 50% → DUPLICATE
+Analysis:
+- Source overlap: [7, 8] shared / [3, 7, 8, 10] unique = 2/4 = 50% ✓
+- Fact overlap: Both mention "Fed cut 25bps" = same fact = >50% ✓
+- Both conditions met → DUPLICATE
 
 Major Developments is higher priority than Risk Factors, so "fed_rate_cut" is PRIMARY.
 
