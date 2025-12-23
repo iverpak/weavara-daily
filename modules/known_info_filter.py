@@ -12,20 +12,22 @@ Knowledge Base: Transcript + 8-Ks only
 - 10-Q excluded (Dec 2025) - same issue, Item 1A boilerplate matches specific news
 
 2-Step Flow:
-1. Sentence-level tagging (Gemini Flash) - Tag each sentence KNOWN or NEW
+1. Sentence-level tagging (Gemini 3.0 Flash) - Tag each sentence KNOWN or NEW
 2. Threshold-based classification:
-   - EXEMPT sections (scenarios, wall_street, catalysts, key_vars) → KEEP unchanged
+   - EXEMPT sections (wall_street_sentiment, upcoming_catalysts, key_variables) → KEEP unchanged
    - 100% KNOWN → REMOVE
    - ≥2/3 KNOWN → REMOVE
    - <2/3 KNOWN (includes 1/2, 1/3) → KEEP original
    - 100% NEW → KEEP original
 
-Migration Notes (Dec 2025):
-- Upgraded from Gemini 2.5 Flash to Gemini 3.0 Flash Preview
-- New SDK: google-genai (not google-generativeai)
-- Thinking Level: HIGH for best accuracy on filing analysis
-- Temperature: 1.0 (required) with seed=42 for determinism
-- Implicit caching: Automatic after 2,048 token prefix match
+API Configuration (Dec 2025):
+- Primary: Gemini 3.0 Flash Preview (gemini-3-flash-preview)
+  - Thinking Level: HIGH for best accuracy on filing analysis
+  - Temperature: 1.0 (required) with seed=42 for determinism
+  - response_schema: Pydantic FilterResponse model for structured output enforcement
+- Fallback: Claude Sonnet 4.5 (claude-sonnet-4-5-20250929)
+  - Temperature: 0.0 for deterministic output
+  - No schema enforcement (relies on prompt + type guards)
 
 STATUS: PRODUCTION - Filters Phase 1 JSON before Phase 2 enrichment.
 """
@@ -34,11 +36,60 @@ import json
 import logging
 import time
 from datetime import datetime
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Literal
 
 import requests
+from pydantic import BaseModel, Field
 
 LOG = logging.getLogger(__name__)
+
+
+# =============================================================================
+# PYDANTIC SCHEMA MODELS (Gemini 3.0 Flash response_schema enforcement)
+# =============================================================================
+
+class Claim(BaseModel):
+    """Individual claim extracted from a sentence."""
+    claim: str = Field(..., description="The atomic claim text (e.g., 'revenue $15.9B')")
+    status: Literal["KNOWN", "NEW"] = Field(..., description="KNOWN if in filings/stale, NEW otherwise")
+    source_type: Optional[str] = Field(None, description="Filing identifier (e.g., TRANSCRIPT_1, 8K_1) if KNOWN, null if NEW")
+    evidence: Optional[str] = Field(None, description="Quote/paraphrase from filing if KNOWN, staleness reason if stale, null if NEW")
+
+
+class Sentence(BaseModel):
+    """Sentence-level analysis with claims."""
+    text: str = Field(..., description="The original sentence text")
+    claims: List[Claim] = Field(..., description="Atomic claims extracted from this sentence")
+    has_material_new: bool = Field(..., description="True if any claim in this sentence is NEW and material")
+    sentence_action: Literal["KEEP", "REMOVE"] = Field(..., description="KEEP if has_material_new, REMOVE otherwise")
+
+
+class Bullet(BaseModel):
+    """Bullet-level analysis with sentence breakdown."""
+    bullet_id: str = Field(..., description="Bullet ID from Phase 1 (e.g., 'MD_001', 'FIN_002')")
+    section: str = Field(..., description="Section name (e.g., 'major_developments', 'financial_performance')")
+    sentences: List[Sentence] = Field(..., description="Sentence-level analysis for this bullet")
+    action: Literal["KEEP", "REMOVE"] = Field(..., description="KEEP if any sentence is KEEP, REMOVE if all sentences REMOVE")
+    exempt: Optional[bool] = Field(False, description="True for exempt sections (wall_street_sentiment, upcoming_catalysts, key_variables)")
+
+
+class Summary(BaseModel):
+    """Summary counts for the filter results."""
+    total_bullets: int = Field(..., description="Total number of bullets analyzed")
+    kept: int = Field(..., description="Number of bullets with action=KEEP")
+    removed: int = Field(..., description="Number of bullets with action=REMOVE")
+    total_sentences: int = Field(..., description="Total sentences across all bullets")
+    kept_sentences: int = Field(..., description="Sentences with sentence_action=KEEP")
+    removed_sentences: int = Field(..., description="Sentences with sentence_action=REMOVE")
+    total_claims: int = Field(..., description="Total claims across all sentences")
+    known_claims: int = Field(..., description="Claims with status=KNOWN")
+    new_claims: int = Field(..., description="Claims with status=NEW")
+
+
+class FilterResponse(BaseModel):
+    """Top-level response schema for Phase 1.5 filter."""
+    summary: Summary = Field(..., description="Aggregate counts for QA visibility")
+    bullets: List[Bullet] = Field(..., description="Bullet-level analysis results")
 
 
 # =============================================================================
@@ -109,7 +160,7 @@ If NO → REMOVE (pure rehash, no incremental value)
 ANALYSIS FLOW (Follow This Exactly)
 ═══════════════════════════════════════════════════════════════════════════════
 
-For EACH bullet/paragraph, follow these steps IN ORDER:
+For EACH bullet, follow these steps IN ORDER:
 
 ┌─────────────────────────────────────────────────────────────────────────────┐
 │ STEP 1: PARSE INTO SENTENCES                                                │
@@ -157,20 +208,11 @@ For EACH bullet/paragraph, follow these steps IN ORDER:
 └─────────────────────────────────────────────────────────────────────────────┘
                                     ↓
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│ STEP 5: BULLET/PARAGRAPH VERDICT                                            │
+│ STEP 5: BULLET VERDICT                                                      │
 ├─────────────────────────────────────────────────────────────────────────────┤
 │ Look at all sentence verdicts:                                              │
 │ - ANY sentence is KEEP? → action=KEEP                                       │
 │ - ALL sentences are REMOVE? → action=REMOVE                                 │
-└─────────────────────────────────────────────────────────────────────────────┘
-                                    ↓
-┌─────────────────────────────────────────────────────────────────────────────┐
-│ STEP 6: BUILD filtered_content                                              │
-├─────────────────────────────────────────────────────────────────────────────┤
-│ Concatenate all KEEP sentences (space-separated, preserve punctuation):     │
-│ - If 2 KEEP sentences: "Sentence one. Sentence two."                        │
-│ - If 0 KEEP sentences: "" (empty string)                                    │
-│ This is mechanical - no rewriting, no editing, just concatenation.          │
 └─────────────────────────────────────────────────────────────────────────────┘
 
 WHY SENTENCE-LEVEL? This approach:
@@ -451,7 +493,7 @@ of the Q3 2025 earnings release. Investors learned this information 89 days ago.
 CLAIM EXTRACTION
 ═══════════════════════════════════════════════════════════════════════════════
 
-Decompose each bullet/paragraph into ATOMIC claims:
+Decompose each bullet into ATOMIC claims:
 - Each specific number is ONE claim (e.g., "revenue $51.2B")
 - Each percentage/growth rate is ONE claim (e.g., "+26% YoY")
 - Each specific event is ONE claim (e.g., "announced partnership with X")
@@ -516,7 +558,7 @@ This allows us to display exactly which filing (with date and title) contained t
 ACTION LOGIC (SENTENCE-LEVEL)
 ═══════════════════════════════════════════════════════════════════════════════
 
-For each bullet/paragraph:
+For each bullet:
 
 1. Parse into sentences
 2. For each sentence:
@@ -525,12 +567,9 @@ For each bullet/paragraph:
    - If ANY claim in the sentence is NEW and material → sentence_action = KEEP
    - If ALL claims in the sentence are KNOWN or stale → sentence_action = REMOVE
 
-3. Concatenate all KEEP sentences to form filtered_content
-
-4. Determine bullet/paragraph action:
-   - If filtered_content is empty (all sentences removed) → action = REMOVE
-   - If filtered_content has content → action = KEEP
-   - filtered_content = the concatenated KEEP sentences
+3. Determine bullet action:
+   - If ALL sentences have sentence_action = REMOVE → action = REMOVE
+   - If ANY sentence has sentence_action = KEEP → action = KEEP
 
 There is NO "REWRITE" action. We do not surgically edit within sentences.
 Either a sentence is kept whole, or removed whole.
@@ -575,7 +614,7 @@ INPUT FORMAT
 ═══════════════════════════════════════════════════════════════════════════════
 
 You will receive:
-1. Phase 1 JSON with bullets and paragraphs
+1. Phase 1 JSON with bullets
 2. Filing sources (Transcript, 8-K) - check claims against these
    - 8-K filings are material events filed since the last earnings call
 
@@ -585,23 +624,15 @@ BULLET SECTIONS TO FILTER (apply full sentence-level filtering):
 - risk_factors
 - competitive_industry_dynamics
 
-SECTIONS TO EXEMPT (analyze for transparency, but ALWAYS keep original):
-
-BULLET SECTIONS:
+EXEMPT BULLET SECTIONS (analyze for transparency, but ALWAYS keep original):
 - wall_street_sentiment (analyst opinions ARE the news)
 - upcoming_catalysts (forward-looking editorial value)
 - key_variables (monitoring recommendations, not news claims)
-
-PARAGRAPH SECTIONS (scenarios are editorial synthesis):
-- bottom_line
-- upside_scenario
-- downside_scenario
 
 For EXEMPT sections:
 - DO perform claim extraction and sentence analysis (for transparency/QA visibility)
 - DO output the sentence-level structure with claims
 - But ALWAYS set action="KEEP" regardless of findings
-- Set filtered_content="" (we'll use original from input)
 - Add "exempt": true to the output
 
 This allows QA review of what WOULD have been filtered, without actually filtering.
@@ -612,13 +643,13 @@ CRITICAL REQUIREMENTS (READ CAREFULLY)
 
 You MUST follow these requirements - no shortcuts allowed:
 
-1. ALWAYS ANALYZE EVERY BULLET/PARAGRAPH
+1. ALWAYS ANALYZE EVERY BULLET
    - Even if you will ultimately REMOVE a bullet, you MUST show the full analysis
    - Empty "sentences" array is NEVER acceptable
    - We need to see WHY something was removed
 
 2. ALWAYS PARSE INTO SENTENCES
-   - Every bullet/paragraph must be split into individual sentences
+   - Every bullet must be split into individual sentences
    - Each sentence gets its own entry in the "sentences" array
    - Single-sentence bullets still have a "sentences" array with one entry
 
@@ -633,7 +664,7 @@ You MUST follow these requirements - no shortcuts allowed:
    - For staleness: source_type=null, evidence="[staleness reason]"
 
 5. THE OUTPUT MUST SHOW THE COMPLETE CHAIN OF LOGIC
-   - claims → sentence verdicts → bullet verdict → filtered_content
+   - claims → sentence verdicts → bullet action
    - A reader should be able to follow exactly why each decision was made
 
 ═══════════════════════════════════════════════════════════════════════════════
@@ -657,8 +688,7 @@ Analysis:
 │  ├─ has_material_new: true (2 NEW claims)
 │  └─ sentence_action: KEEP
 │
-├─ Bullet verdict: 1 KEEP sentence → action = KEEP
-└─ filtered_content: "The stock fell 8% on AI spending concerns."
+└─ Bullet verdict: 1 KEEP sentence → action = KEEP
 
 JSON output for this bullet:
 {
@@ -685,7 +715,7 @@ JSON output for this bullet:
     }
   ],
   "action": "KEEP",
-  "filtered_content": "The stock fell 8% on AI spending concerns."
+  "exempt": false
 }
 
 EXAMPLE 2: Bullet that is FULLY REMOVED → action=REMOVE (STILL requires full analysis!)
@@ -700,8 +730,7 @@ Analysis:
 │  ├─ has_material_new: false (0 NEW claims)
 │  └─ sentence_action: REMOVE
 │
-├─ Bullet verdict: 0 KEEP sentences → action = REMOVE
-└─ filtered_content: ""
+└─ Bullet verdict: 0 KEEP sentences → action = REMOVE
 
 JSON output for this bullet (NOTE: sentences array is REQUIRED even for REMOVE):
 {
@@ -720,7 +749,7 @@ JSON output for this bullet (NOTE: sentences array is REQUIRED even for REMOVE):
     }
   ],
   "action": "REMOVE",
-  "filtered_content": ""
+  "exempt": false
 }
 
 EXAMPLE 3: EXEMPT section (wall_street_sentiment) → action=KEEP, show analysis anyway
@@ -735,8 +764,7 @@ Analysis (for transparency only - exempt sections always KEEP):
 │  ├─ has_material_new: true
 │  └─ sentence_action: KEEP (but irrelevant - section is exempt)
 │
-├─ Bullet verdict: EXEMPT → action = KEEP (regardless of analysis)
-└─ filtered_content: "" (we use original from input)
+└─ Bullet verdict: EXEMPT → action = KEEP (regardless of analysis)
 
 JSON output for exempt bullet:
 {
@@ -755,7 +783,6 @@ JSON output for exempt bullet:
     }
   ],
   "action": "KEEP",
-  "filtered_content": "",
   "exempt": true
 }
 
@@ -781,13 +808,13 @@ WRONG (never do this):
 {
   "bullet_id": "FIN_002",
   "sentences": [],           ← EMPTY! NO ANALYSIS!
-  "action": "REMOVE",
-  "filtered_content": ""
+  "action": "REMOVE"
 }
 
 RIGHT (always do this):
 {
   "bullet_id": "FIN_002",
+  "section": "financial_performance",
   "sentences": [
     {
       "text": "Q3 EBITDA reached $10.7B...",
@@ -800,7 +827,7 @@ RIGHT (always do this):
     }
   ],
   "action": "REMOVE",
-  "filtered_content": ""
+  "exempt": false
 }
 
 ═══════════════════════════════════════════════════════════════════════════════
@@ -812,7 +839,6 @@ Return valid JSON with this exact structure:
 {
   "summary": {
     "total_bullets": 15,
-    "total_paragraphs": 3,
     "kept": 8,
     "removed": 7,
     "total_sentences": 45,
@@ -867,22 +893,7 @@ Return valid JSON with this exact structure:
         }
       ],
       "action": "KEEP",
-      "filtered_content": "The stock fell 8% on AI spending concerns."
-    }
-  ],
-  "paragraphs": [
-    {
-      "section": "bottom_line",
-      "sentences": [
-        {
-          "text": "...",
-          "claims": [...],
-          "has_material_new": true or false,
-          "sentence_action": "KEEP" or "REMOVE"
-        }
-      ],
-      "action": "KEEP" or "REMOVE",
-      "filtered_content": "Concatenated KEEP sentences..."
+      "exempt": false
     }
   ]
 }
@@ -894,31 +905,26 @@ IMPORTANT - DO NOT SKIP ANY OF THESE:
    - We need to see the claims and evidence for WHY it was removed
    - See EXAMPLE 2 above - REMOVE bullets still have complete sentence/claim analysis
 
-2. Parse each bullet/paragraph into sentences FIRST
+2. Parse each bullet into sentences FIRST
    - Include ALL sentences with their claims and verdicts
    - Every sentence needs: text, claims[], has_material_new, sentence_action
 
-3. filtered_content rules:
-   - = concatenation of all KEEP sentences (space-separated)
-   - If all sentences removed → filtered_content = "", action = "REMOVE"
-   - If any sentences kept → action = "KEEP"
+3. Action rules:
+   - If all sentences are REMOVE → action = "REMOVE"
+   - If any sentence is KEEP → action = "KEEP"
+   - There is NO "REWRITE" action - only KEEP or REMOVE
 
-4. There is NO "REWRITE" action - only KEEP or REMOVE
-
-5. Only include bullets that exist in Phase 1 JSON
+4. Only include bullets that exist in Phase 1 JSON
    - If a section (e.g., major_developments) has no bullets in Phase 1, do NOT create placeholder entries
    - Do NOT report on empty sections - simply skip them
-   - The summary counts should only reflect bullets/paragraphs that actually had content
+   - The summary counts should only reflect bullets that actually had content
 
-6. Only include paragraph sections that have content in Phase 1 JSON
-   - If bottom_line, upside_scenario, or downside_scenario has no content, skip it
-
-7. For EXEMPT sections (wall_street_sentiment, upcoming_catalysts, key_variables):
+5. For EXEMPT sections (wall_street_sentiment, upcoming_catalysts, key_variables):
    - DO perform sentence/claim analysis (for QA visibility)
-   - Set action="KEEP", filtered_content="" (we use original)
+   - Set action="KEEP"
    - Add "exempt": true to the output
 
-8. List ALL claims individually - NEVER truncate with "and X more claims"
+6. List ALL claims individually - NEVER truncate with "and X more claims"
 
 EVIDENCE FIELD (required for KNOWN claims):
 - For KNOWN claims from filings: Include quote/paraphrase + source_type
@@ -1185,10 +1191,7 @@ def _merge_original_content(ai_response: Dict, phase1_json: Dict) -> Dict:
       "sections": {
         "major_developments": [  # Bullet sections are arrays of bullet objects
           {"bullet_id": "...", "content": "...", ...},
-        ],
-        "bottom_line": {  # Paragraph sections are objects with content
-          "content": "...",
-        }
+        ]
       }
     }
 
@@ -1197,12 +1200,12 @@ def _merge_original_content(ai_response: Dict, phase1_json: Dict) -> Dict:
       "bullets": [
         {
           "bullet_id": "...",
+          "section": "...",
           "sentences": [...],  # Sentence-level analysis
           "action": "KEEP" or "REMOVE",
-          "filtered_content": "..."  # Concatenated KEEP sentences
+          "exempt": true/false
         }
-      ],
-      "paragraphs": [...]
+      ]
     }
 
     Args:
@@ -1234,16 +1237,16 @@ def _merge_original_content(ai_response: Dict, phase1_json: Dict) -> Dict:
                         content = bullet.get('content', '')
                         phase1_bullets[bullet_id] = content
 
-    # Merge into AI response bullets
+    # Merge into AI response bullets (with type guard for defense-in-depth)
     for bullet in ai_response.get('bullets', []):
+        if not isinstance(bullet, dict):
+            LOG.warning(f"Skipping non-dict bullet in AI response: {type(bullet)}")
+            continue
         bullet_id = bullet.get('bullet_id', '')
         if bullet_id and bullet_id in phase1_bullets:
             bullet['original_content'] = phase1_bullets[bullet_id]
         elif not bullet.get('original_content'):
             bullet['original_content'] = ''
-
-    # Note: Phase 1 no longer generates paragraph sections (bottom_line, upside_scenario, downside_scenario)
-    # Phase 4 generates these from surviving bullets
 
     return ai_response
 
@@ -1266,14 +1269,12 @@ def apply_filter_to_phase1(phase1_json: Dict, filter_result: Dict) -> Dict:
             {
                 "sections": {
                     "major_developments": [...],  # Array of bullet objects
-                    "bottom_line": {...},         # Paragraph object
                     ...
                 }
             }
         filter_result: Output from filter_known_information() with structure:
             {
-                "bullets": [{"bullet_id": "...", "action": "KEEP|REMOVE", "exempt": true/false}],
-                "paragraphs": [{"section": "...", "action": "KEEP|REMOVE", "exempt": true/false}]
+                "bullets": [{"bullet_id": "...", "action": "KEEP|REMOVE", "exempt": true/false}]
             }
 
     Returns:
@@ -1293,16 +1294,6 @@ def apply_filter_to_phase1(phase1_json: Dict, filter_result: Dict) -> Dict:
             bullet_actions[bullet_id] = {
                 'action': bullet.get('action', 'KEEP').upper(),
                 'exempt': bullet.get('exempt', False)
-            }
-
-    # Build lookup for filter actions by section name (paragraphs)
-    paragraph_actions = {}
-    for para in filter_result.get('paragraphs', []):
-        section = para.get('section', '')
-        if section:
-            paragraph_actions[section] = {
-                'action': para.get('action', 'KEEP').upper(),
-                'exempt': para.get('exempt', False)
             }
 
     # Process bullet sections
@@ -1345,18 +1336,6 @@ def apply_filter_to_phase1(phase1_json: Dict, filter_result: Dict) -> Dict:
                 bullet['filter_status'] = 'included'
                 bullet['filter_reason'] = None
                 kept_count += 1
-
-    # Process paragraph sections (scenarios are always exempt, so always KEEP)
-    # Paragraphs don't get filter_status since Phase 4 regenerates them
-    paragraph_section_names = ['bottom_line', 'upside_scenario', 'downside_scenario']
-
-    for section_name in paragraph_section_names:
-        section_data = sections.get(section_name, {})
-        if not isinstance(section_data, dict):
-            continue
-
-        # Paragraphs are exempt from staleness filtering
-        # Phase 4 will regenerate them from surviving bullets
 
     LOG.info(f"Phase 1.5 apply_filter: {kept_count} kept, {stale_count} marked stale (all preserved)")
 
@@ -1548,17 +1527,18 @@ def _filter_known_info_gemini(
             types.Part.from_text(text=user_content)
         ]
 
-        # Configure for HIGH thinking with deterministic output
+        # Configure for HIGH thinking with deterministic output and schema enforcement
         config = build_thinking_config(
             thinking_level="HIGH",
             include_thoughts=False,
             temperature=1.0,
             max_output_tokens=60000,
             seed=42,
-            response_mime_type="application/json"
+            response_mime_type="application/json",
+            response_schema=FilterResponse  # Pydantic schema enforcement (Dec 2025)
         )
 
-        LOG.info(f"[{ticker}] Phase 1.5: Calling Gemini 3.0 Flash Preview (thinking=HIGH)")
+        LOG.info(f"[{ticker}] Phase 1.5: Calling Gemini 3.0 Flash Preview (thinking=HIGH, schema=FilterResponse)")
 
         # Import JSON parser
         from modules.json_utils import extract_json_from_claude_response
@@ -1809,34 +1789,28 @@ def _filter_known_info_claude(
 # STEP 2: THRESHOLD-BASED CLASSIFICATION
 # =============================================================================
 
-# Sections that are always exempt (never filtered)
+# Bullet sections that are always exempt (never filtered)
 EXEMPT_SECTIONS = {
-    # Bullet sections
     'wall_street_sentiment',
     'upcoming_catalysts',
     'key_variables',
-    # Paragraph sections (scenarios)
-    'bottom_line',
-    'upside_scenario',
-    'downside_scenario'
 }
 
 
 def _classify_bullet_with_threshold(item: Dict, section: str) -> str:
     """
-    Classify bullet/paragraph using 2/3 threshold rule.
+    Classify bullet using 2/3 threshold rule.
 
     Rules:
-    - Exempt sections: Always KEEP (bottom_line, upside_scenario, downside_scenario,
-      wall_street_sentiment, upcoming_catalysts, key_variables)
+    - Exempt sections: Always KEEP (wall_street_sentiment, upcoming_catalysts, key_variables)
     - 0% stale (100% NEW): KEEP
     - <2/3 stale (e.g., 1/2, 1/3): KEEP
     - ≥2/3 stale: REMOVE
     - 100% stale: REMOVE
 
     Args:
-        item: Bullet or paragraph dict with sentences
-        section: Section name (e.g., 'major_developments', 'bottom_line')
+        item: Bullet dict with sentences
+        section: Section name (e.g., 'major_developments', 'financial_performance')
 
     Returns:
         'exempt' - Exempt section → KEEP unchanged
@@ -1884,8 +1858,8 @@ def filter_known_information(
     """
     Filter Phase 1 bullets to identify KNOWN vs NEW claims.
 
-    TEST MODE: This function runs in parallel with Phase 2 and emails findings.
-               It does NOT modify the production pipeline.
+    Uses Gemini 3.0 Flash with Pydantic schema enforcement (primary).
+    Falls back to Claude Sonnet 4.5 if Gemini fails.
 
     Args:
         ticker: Stock ticker
@@ -1901,7 +1875,6 @@ def filter_known_information(
             "filings_used": {...},
             "summary": {...},
             "bullets": [...],
-            "paragraphs": [...],
             "model_used": str,
             "generation_time_ms": int
         }
@@ -1946,19 +1919,19 @@ def filter_known_information(
             LOG.warning(f"[{ticker}] Phase 1.5: Gemini failed")
             result = None
 
-    # Claude fallback - DISABLED (Dec 2025)
-    # if result is None and anthropic_api_key:
-    #     LOG.info(f"[{ticker}] Phase 1.5: Using Claude Sonnet 4.5 (fallback)")
-    #     result = _filter_known_info_claude(ticker, phase1_json, filings, anthropic_api_key, eight_k_filings)
-    #
-    #     if result and result.get("json_output"):
-    #         LOG.info(f"[{ticker}] Phase 1.5: Claude succeeded (fallback)")
-    #     else:
-    #         LOG.error(f"[{ticker}] Phase 1.5: Claude also failed")
-    #         result = None
+    # Claude fallback (re-enabled Dec 2025)
+    if result is None and anthropic_api_key:
+        LOG.info(f"[{ticker}] Phase 1.5: Using Claude Sonnet 4.5 (fallback)")
+        result = _filter_known_info_claude(ticker, phase1_json, filings, anthropic_api_key, eight_k_filings)
+
+        if result and result.get("json_output"):
+            LOG.info(f"[{ticker}] Phase 1.5: Claude succeeded (fallback)")
+        else:
+            LOG.error(f"[{ticker}] Phase 1.5: Claude also failed")
+            result = None
 
     if result is None:
-        LOG.error(f"[{ticker}] Phase 1.5: Gemini failed, no fallback available")
+        LOG.error(f"[{ticker}] Phase 1.5: Both Gemini and Claude failed")
         return None
 
     # Build final output
@@ -1971,69 +1944,39 @@ def filter_known_information(
     # STEP 2: THRESHOLD-BASED CLASSIFICATION (no rewrite step)
     # =========================================================================
     bullets = json_output.get("bullets", [])
-    paragraphs = json_output.get("paragraphs", [])
 
-    # Classify each bullet with section context
+    # Classify each bullet with section context (with type guard for defense-in-depth)
     bullet_classifications = {}
     for idx, bullet in enumerate(bullets):
+        if not isinstance(bullet, dict):
+            LOG.warning(f"[{ticker}] Skipping non-dict bullet at index {idx}: {type(bullet)}")
+            continue
         section = bullet.get('section', '')
         bullet_classifications[idx] = _classify_bullet_with_threshold(bullet, section)
-
-    # Classify each paragraph with section context
-    paragraph_classifications = {}
-    for idx, para in enumerate(paragraphs):
-        section = para.get('section', '')
-        paragraph_classifications[idx] = _classify_bullet_with_threshold(para, section)
 
     # Log classification counts
     classification_keys = ['all_known', 'mostly_known', 'all_new', 'mostly_new', 'exempt']
     LOG.info(f"[{ticker}] Phase 1.5 Step 2 Classification - "
-             f"Bullets: {dict((k, sum(1 for v in bullet_classifications.values() if v == k)) for k in classification_keys)} | "
-             f"Paragraphs: {dict((k, sum(1 for v in paragraph_classifications.values() if v == k)) for k in classification_keys)}")
+             f"Bullets: {dict((k, sum(1 for v in bullet_classifications.values() if v == k)) for k in classification_keys)}")
 
-    # Apply classifications to bullets
+    # Apply classifications to bullets (with type guard for defense-in-depth)
     kept_count = 0
     removed_count = 0
 
     for idx, bullet in enumerate(bullets):
+        if not isinstance(bullet, dict):
+            continue  # Already logged warning above
         classification = bullet_classifications.get(idx)
 
         if classification in ('all_known', 'mostly_known'):
             bullet['action'] = 'REMOVE'
-            if 'filtered_content' in bullet:
-                del bullet['filtered_content']
             removed_count += 1
         elif classification == 'exempt':
             bullet['action'] = 'KEEP'
             bullet['exempt'] = True
-            if 'filtered_content' in bullet:
-                del bullet['filtered_content']
             kept_count += 1
         else:  # all_new or mostly_new
             bullet['action'] = 'KEEP'
-            if 'filtered_content' in bullet:
-                del bullet['filtered_content']
-            kept_count += 1
-
-    # Apply classifications to paragraphs
-    for idx, para in enumerate(paragraphs):
-        classification = paragraph_classifications.get(idx)
-
-        if classification in ('all_known', 'mostly_known'):
-            para['action'] = 'REMOVE'
-            if 'filtered_content' in para:
-                del para['filtered_content']
-            removed_count += 1
-        elif classification == 'exempt':
-            para['action'] = 'KEEP'
-            para['exempt'] = True
-            if 'filtered_content' in para:
-                del para['filtered_content']
-            kept_count += 1
-        else:  # all_new or mostly_new
-            para['action'] = 'KEEP'
-            if 'filtered_content' in para:
-                del para['filtered_content']
             kept_count += 1
 
     # Update summary counts
@@ -2050,7 +1993,6 @@ def filter_known_information(
         "filing_lookup": result.get("filing_lookup", {}),  # Maps identifiers to metadata
         "summary": summary,
         "bullets": bullets,
-        "paragraphs": paragraphs,
         "model_used": result.get("model_used", "unknown"),
         "prompt_tokens": result.get("prompt_tokens", 0),
         "completion_tokens": result.get("completion_tokens", 0),
@@ -2221,7 +2163,6 @@ def generate_known_info_filter_email(ticker: str, filter_result: Dict) -> str:
 
     summary = filter_result.get("summary", {})
     bullets = filter_result.get("bullets", [])
-    paragraphs = filter_result.get("paragraphs", [])
     filings = filter_result.get("filings_used", {})
     filing_lookup = filter_result.get("filing_lookup", {})  # For resolving identifiers
     model = filter_result.get("model_used", "unknown")
@@ -2285,8 +2226,8 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans
 <table style="width: 100%; margin-top: 15px; border-collapse: collapse;">
 <tr>
 <td style="text-align: center; padding: 12px; background: #f5f5f5; border-radius: 6px; width: 14%;">
-<div style="font-size: 24px; font-weight: bold; color: #1a1a2e;">{summary.get('total_bullets', 0) + summary.get('total_paragraphs', 0)}</div>
-<div style="font-size: 11px; color: #666; margin-top: 5px;">Bullets/Paras</div>
+<div style="font-size: 24px; font-weight: bold; color: #1a1a2e;">{summary.get('total_bullets', 0)}</div>
+<div style="font-size: 11px; color: #666; margin-top: 5px;">Bullets</div>
 </td>
 <td style="text-align: center; padding: 12px; background: #f5f5f5; border-radius: 6px; width: 14%;">
 <div style="font-size: 24px; font-weight: bold; color: #28a745;">{summary.get('kept', 0)}</div>
@@ -2320,69 +2261,9 @@ body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans
     # Add filing timeline section (shows what AI was checking against)
     html += _build_filing_timeline_html(filing_lookup)
 
-    # Add paragraphs section
-    if paragraphs:
-        html += '<div class="section-header">Paragraph Sections</div>\n'
-        for p in paragraphs:
-            action = p.get('action', 'KEEP').upper()
-            exempt = p.get('exempt', False)
-
-            if exempt:
-                action_class = "bullet-exempt"
-                badge_class = "badge-exempt"
-                badge_text = "EXEMPT"
-            else:
-                action_class = f"bullet-{action.lower()}"
-                badge_class = f"badge-{action.lower()}"
-                badge_text = action
-
-            html += f'<div class="bullet {action_class}">\n'
-            html += f'<div class="bullet-header"><span>[{p.get("section", "?")}]</span><span class="action-badge {badge_class}">{badge_text}</span></div>\n'
-
-            # Original content
-            original = p.get('original_content', '') or p.get('content', '')
-            if original:
-                html += f'<div class="content-box"><strong>Original:</strong><br>{_escape_html(original)}</div>\n'
-
-            # Sentence-level breakdown
-            sentences = p.get('sentences', [])
-            if sentences:
-                html += '<div style="margin: 10px 0;"><strong>Sentence Analysis:</strong></div>\n'
-                for s in sentences:
-                    sent_action = s.get('sentence_action', 'KEEP').upper()
-                    sent_class = 'sentence-keep' if sent_action == 'KEEP' else 'sentence-remove'
-                    sent_icon = '✅' if sent_action == 'KEEP' else '❌'
-
-                    html += f'<div class="sentence {sent_class}">\n'
-                    html += f'<div class="sentence-text">{sent_icon} {_escape_html(s.get("text", ""))}</div>\n'
-
-                    # Claims within sentence
-                    claims = s.get('claims', [])
-                    if claims:
-                        html += '<div class="claims">\n'
-                        for c in claims:
-                            status = c.get('status', 'NEW')
-                            claim_class = 'claim-known' if status == 'KNOWN' else 'claim-new'
-                            icon = '❌' if status == 'KNOWN' else '✅'
-                            source_type_raw = c.get('source_type', '')
-                            source_type_display = _resolve_source_type(source_type_raw, filing_lookup)
-                            evidence = c.get('evidence', '')
-
-                            html += f'<div class="claim {claim_class}">{icon} {_escape_html(c.get("claim", ""))}'
-                            if status == 'KNOWN' and evidence:
-                                if source_type_raw:
-                                    html += f' <span style="color: #666; font-size: 11px;">({source_type_display})</span>'
-                                else:
-                                    html += f' <span style="color: #856404; font-size: 11px;">⏰ {_escape_html(evidence)}</span>'
-                            html += '</div>\n'
-                        html += '</div>\n'
-                    html += '</div>\n'
-
-            html += '</div>\n'
-
     # Add bullets section
     if bullets:
-        html += '<div class="section-header">Bullet Sections</div>\n'
+        html += '<div class="section-header">Bullets</div>\n'
         for b in bullets:
             action = b.get('action', 'KEEP').upper()
             exempt = b.get('exempt', False)

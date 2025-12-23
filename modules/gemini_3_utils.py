@@ -284,7 +284,8 @@ def build_thinking_config(
     temperature: float = 1.0,
     max_output_tokens: int = 20000,
     seed: int = 42,
-    response_mime_type: str = "application/json"
+    response_mime_type: str = "application/json",
+    response_schema = None
 ):
     """
     Build GenerateContentConfig for Gemini 3.0 Flash with thinking.
@@ -296,6 +297,7 @@ def build_thinking_config(
         max_output_tokens: Max tokens in response (default 20000)
         seed: Random seed for determinism (default 42)
         response_mime_type: Output format (default "application/json")
+        response_schema: Optional Pydantic model class for structured output enforcement
 
     Returns:
         GenerateContentConfig instance
@@ -319,5 +321,6 @@ def build_thinking_config(
         temperature=temperature,
         max_output_tokens=max_output_tokens,
         seed=seed,
-        response_mime_type=response_mime_type
+        response_mime_type=response_mime_type,
+        response_schema=response_schema
     )
