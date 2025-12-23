@@ -16201,7 +16201,7 @@ def generate_email_html_core(
     try:
         json_output = json.loads(executive_summary_text)
 
-        # Apply deduplication - removes duplicate bullets and merges source_articles for primaries
+        # Apply deduplication - removes duplicate bullets (primaries keep original source_articles)
         json_output = apply_deduplication(json_output)
 
         sections = convert_phase1_to_sections_dict(json_output)

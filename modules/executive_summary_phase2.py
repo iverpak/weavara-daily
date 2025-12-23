@@ -1431,7 +1431,7 @@ def apply_deduplication(phase3_merged_json: Dict) -> Dict:
 
     This function:
     1. Removes bullets marked as 'duplicate' (absorbed elsewhere)
-    2. For 'primary' bullets, merges source_articles from absorbed bullets
+    2. Keeps 'primary' and 'unique' bullets with their original source_articles
     3. Returns clean JSON ready for Email #3 rendering
 
     NOTE: Phase 3 is now dedup-only - it no longer generates proposed_content/proposed_context.
@@ -1441,7 +1441,7 @@ def apply_deduplication(phase3_merged_json: Dict) -> Dict:
         phase3_merged_json: Phase 3 merged JSON with deduplication metadata
 
     Returns:
-        Deduplicated JSON with duplicates removed and source_articles merged
+        Deduplicated JSON with duplicate bullets removed
     """
     import copy
     import logging
@@ -1461,7 +1461,7 @@ def apply_deduplication(phase3_merged_json: Dict) -> Dict:
         "upcoming_catalysts"
     ]
 
-    # First pass: Build lookup of all bullets by bullet_id for source_articles merging
+    # First pass: Build lookup of all bullets by bullet_id (for potential future use)
     all_bullets = {}
     for section_name in bullet_sections:
         bullets = result.get("sections", {}).get(section_name, [])
@@ -1494,18 +1494,6 @@ def apply_deduplication(phase3_merged_json: Dict) -> Dict:
 
             if status == 'primary':
                 primaries_consolidated += 1
-
-                # Merge source_articles from absorbed bullets
-                absorbed_ids = dedup.get('absorbs', [])
-                if absorbed_ids:
-                    primary_sources = set(bullet.get('source_articles', []))
-                    for absorbed_id in absorbed_ids:
-                        absorbed_bullet = all_bullets.get(absorbed_id, {})
-                        absorbed_sources = absorbed_bullet.get('source_articles', [])
-                        primary_sources.update(absorbed_sources)
-                    # Sort for consistent output
-                    bullet['source_articles'] = sorted(list(primary_sources))
-                    LOG.debug(f"Merged source_articles for {bullet.get('bullet_id')}: {bullet['source_articles']}")
 
             # Add bullet to consolidated list (unique or primary)
             consolidated.append(bullet)
