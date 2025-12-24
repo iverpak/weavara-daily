@@ -8020,8 +8020,8 @@ def _format_article_html_with_ai_summary(article: Dict, category: str, ticker_me
         pass
     elif ai_model == 'low_quality':
         # Rejected by quality floor (< 3.0) - low quality source or content
-        quality_score = article.get('quality_score', 0)
-        header_badges.append(f'<span class="low-quality-badge" style="display: inline-block; padding: 2px 8px; margin-right: 8px; border-radius: 3px; font-weight: bold; font-size: 10px; background-color: #fee; color: #c53030; border: 1px solid #fc8181;">🚫 Low Quality ({quality_score:.1f}/10)</span>')
+        # Score shown in QUALITY badge, this is just a status indicator
+        header_badges.append('<span class="low-quality-badge" style="display: inline-block; padding: 2px 8px; margin-right: 8px; border-radius: 3px; font-weight: bold; font-size: 10px; background-color: #fee; color: #c53030; border: 1px solid #fc8181;">🚫 Low Quality</span>')
     elif ai_model == 'error':
         # AI analysis failed (technical error)
         header_badges.append('<span class="error-badge" style="display: inline-block; padding: 2px 8px; margin-right: 8px; border-radius: 3px; font-weight: bold; font-size: 10px; background-color: #fee; color: #c53030; border: 1px solid #fc8181;">❌ Failed (AI Error)</span>')
