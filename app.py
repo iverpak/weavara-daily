@@ -982,6 +982,7 @@ SPAM_DOMAINS = {
     # Low-quality international aggregators (Dec 2025)
     "thenigerianvoice.com", "www.thenigerianvoice.com",  # Nigerian news aggregator
     "news.az", "www.news.az",  # Azerbaijan news, not material for US/CA markets
+    "apa.az", "www.apa.az", "en.apa.az",  # Azerbaijan Press Agency, not material for US/CA markets
     "mixvale.com.br", "www.mixvale.com.br",  # Brazilian aggregator
     "zoombangla.com", "www.zoombangla.com",  # Bangladeshi news aggregator
     "dailyausaf.com", "www.dailyausaf.com",  # Pakistani Urdu news
