@@ -408,16 +408,22 @@ H. Economic Data (stale when recapping old releases)
    - GDP, unemployment, CPI from prior periods being summarized
    - PMI, housing data, consumer confidence from months ago
 
-I. Aggregated Analyst Ratings (ALWAYS stale)
+I. Aggregated Analyst Estimates (ALWAYS stale)
    - Consensus ratings tallies ("82 rate Buy, 3 Hold, 0 Sell")
    - Average/consensus/median price targets without named firm
+   - Consensus EPS/revenue estimates ("expected EPS of $1.63", "Street expects revenue of $5B")
    - "X analysts cover the stock" summaries
-   - Aggregator roundups (TipRanks, Benzinga, Yahoo Finance, The Fly, Cantech Letter)
-   → Evidence: "Aggregated ratings - continuously observable"
+   - Aggregator roundups (TipRanks, Benzinga, Yahoo Finance, The Fly, Cantech Letter, thestreet)
+   → Evidence: "Aggregated estimates - continuously observable"
+
+   CRITICAL DISTINCTION - Company guidance vs Street consensus:
+   - Company guidance ("we expect EPS of $X") → NEW (it's their forward projection)
+   - Street consensus ("expected EPS per analysts/Street") → STALE (aggregated, look up anytime)
 
    EXCEPTION - When analyst data IS new (do NOT mark as stale):
    - Named firm + specific action ("Goldman Sachs raised target to $250")
    - Rating change from named firm ("Morgan Stanley upgraded to Overweight")
+   - Named firm + specific estimate ("JPMorgan expects EPS of $1.80")
    - Detailed thesis with firm attribution
 
 → Categories A, B, C, I: ALWAYS mark as KNOWN (no timing exception)
