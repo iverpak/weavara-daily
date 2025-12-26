@@ -989,6 +989,8 @@ SPAM_DOMAINS = {
     "indiashorts.com", "www.indiashorts.com",  # Indian news aggregator
     "businessupturn.com", "www.businessupturn.com",  # Low-quality business aggregator
     "moha.gov.vn", "www.moha.gov.vn",  # Vietnamese government site, not material for US/CA markets
+    # Retail stock analysis sites (Dec 2025)
+    "trefis.com", "www.trefis.com",  # Retail stock analysis, automated price targets
 }
 
 QUALITY_DOMAINS = {
