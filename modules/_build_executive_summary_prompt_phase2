@@ -1728,7 +1728,8 @@ Example: "Hologic acquired for $76/share, 46% premium"
 SENTIMENT TAG CALCULATION
 ═══════════════════════════════════════════════════════════════════════════════
 
-Sentiment answers: "Is this good, bad, or neutral for the company?"
+Sentiment answers: "Does this improve or worsen THIS COMPANY's earnings power?"
+Not "does this sound positive/negative" — what is the directional impact on revenue, costs, or competitive position for THIS specific company?
 
 EXTRACT from article language/tone/comparisons (not independent inference).
 
@@ -1738,9 +1739,19 @@ FOUR OPTIONS:
 - neutral: Routine update, unclear direction
 - mixed: Offsetting factors (both positive AND negative aspects present)
 
+FOR INDUSTRY/ECOSYSTEM NEWS (not direct company news):
+Before tagging, state the single-step transmission to earnings:
+
+"[Development] → [direct impact on company revenue/costs/position] → [tag]"
+
+If you cannot complete this sentence in one step, the tag is NEUTRAL.
+The article's tone about the general topic is irrelevant. Only the impact on THIS company matters.
+
 CRITICAL RULE: Single-step inference ONLY (no multi-hop chains X → Y → Z)
 
-FORMULA: Sentiment = Article framing + Filing economic reality
+FORMULA: Sentiment = Impact on THIS company (per article + filing)
+"Article framing" means: How the article describes impact on THIS company — not the article's general tone about the topic.
+Example: Article negative about "supply disruptions" generally, but company is a producer who benefits from higher prices → BULLISH (company impact), not bearish (article tone).
 
 BULLISH (single-step improvements):
 - Revenue/earnings: Beat expectations, margin expansion, guidance raise
