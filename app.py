@@ -991,6 +991,8 @@ SPAM_DOMAINS = {
     "moha.gov.vn", "www.moha.gov.vn",  # Vietnamese government site, not material for US/CA markets
     # Retail stock analysis sites (Dec 2025)
     "trefis.com", "www.trefis.com",  # Retail stock analysis, automated price targets
+    # Entertainment/celebrity news (Jan 2026)
+    "bollywoodhelpline.com", "www.bollywoodhelpline.com",  # Indian entertainment news, not material for US/CA markets
 }
 
 QUALITY_DOMAINS = {
