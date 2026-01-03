@@ -15719,8 +15719,8 @@ def build_executive_summary_html(sections: Dict[str, List[str]], strip_emojis: b
     html += build_section("📌 Bottom Line" if not strip_emojis else "Bottom Line",
                          sections.get("bottom_line", []), use_bullets=False, bold_labels=True, context_only=True)
 
-    # 32px spacer after Bottom Line black dash (matches metrics strip to Bottom Line gap)
-    html += '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"><tr><td height="32" style="font-size: 0; line-height: 0;">&nbsp;</td></tr></table>'
+    # 16px spacer after Bottom Line black dash (matches inter-section spacing: 16px + 20px margin-top = 36px)
+    html += '<table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%"><tr><td height="16" style="font-size: 0; line-height: 0;">&nbsp;</td></tr></table>'
 
     # Standard sections (bullet format)
     html += build_section("🔴 Major Developments" if not strip_emojis else "Major Developments",
