@@ -15576,9 +15576,9 @@ def build_executive_summary_html(sections: Dict[str, List[str]], strip_emojis: b
                 text = "<br><br>".join(paragraphs)
 
             return f'''
-                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-bottom: -6px; padding-bottom: 18px; border-bottom: 2px solid #1a1a1a;">
+                <table role="presentation" cellpadding="0" cellspacing="0" border="0" width="100%" style="margin-bottom: 16px;">
                     <tr>
-                        <td>
+                        <td style="padding-bottom: 18px; border-bottom: 2px solid #1a1a1a;">
                             <p style="margin: 0 0 12px 0; font-family: Arial, Helvetica, sans-serif; font-size: 11px; text-transform: uppercase; letter-spacing: 2px; color: #8b2c24; font-weight: 600;">Bottom Line</p>
                             <p style="margin: 0; font-family: Arial, Helvetica, sans-serif; font-size: 13px; line-height: 1.7; color: #3d3d3d;">{text}</p>
                         </td>
